@@ -16,19 +16,30 @@
 	-machine:x64 ^
 	-subsystem:console
 
-@set LinkLibs= ^
+@set DLLLibs= ^
 	/libpath:"%VSBasePath%\lib\x64" ^
 	/libpath:"%WinSDKPath%\Lib\%WinSDKVersion%\ucrt\x64" ^
 	/libpath:"%WinSDKPath%\Lib\%WinSDKVersion%\um\x64" ^
 	/libpath:"C:\Program Files\LLVM\lib" ^
 	/libpath:"..\lib\embree3\lib" ^
-	/libpath:"C:\Python35\libs" ^
 	libcmt.lib User32.lib embree3.lib
+
+
+@set ExeLibs= ^
+	/libpath:"%VSBasePath%\lib\x64" ^
+	/libpath:"%WinSDKPath%\Lib\%WinSDKVersion%\ucrt\x64" ^
+	/libpath:"%WinSDKPath%\Lib\%WinSDKVersion%\um\x64" ^
+	/libpath:"C:\Program Files\LLVM\lib" ^
+	libcmt.lib User32.lib
 
 @ctime -begin payload.ctm
 @echo Compiling...
-@clang++ payload.cc -o ..\build\payload.o -c %CompilerFlags%
+@clang++ win32_payload.cc -o ..\build\payload.o -c %CompilerFlags%
 
-@lld-link "..\build\payload.o" -out:"%OUT%" %LinkFlags% %LinkLibs%
+@clang++ payload.cc -o ..\build\payloaddll.o -c %CompilerFlags%
+@link /DLL "..\build\payloaddll.o" -out:"..\build\out\Payload.dll" %LinkFlags% %DLLLibs%
+
+
+@link "..\build\payload.o" -out:"%OUT%" %LinkFlags% %ExeLibs%
 @echo Done
 @ctime -end payload.ctm

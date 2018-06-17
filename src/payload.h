@@ -123,32 +123,3 @@ union colour
     u32 Pack;
 };
 
-void* AlignedMalloc(size_t size, size_t align) 
-{
-    if (size == 0) return NULL;
-    
-    assert((align & (align-1)) == 0);
-    void* ptr = _mm_malloc(size,align);
-    
-    assert(!(size == 0 && ptr == NULL));
-    
-    return ptr;
-}
-
-internal inline void*
-Alloc(u64 Size)
-{
-    void* Result = VirtualAlloc(NULL, Size, MEM_COMMIT, PAGE_READWRITE);
-    return(Result);
-}
-
-internal u32 
-XorShift(u32 *State)
-{
-    u32 X = *State;
-    X ^= X << 13;
-    X ^= X >> 17;
-    X ^= X << 5;
-    *State = X;
-    return(X);
-}

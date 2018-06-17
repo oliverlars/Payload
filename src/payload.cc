@@ -1,4 +1,3 @@
-#include <C:\Python35\Include\Python.h>
 #include <stdio.h>
 #include <assert.h>
 #include <immintrin.h>
@@ -11,10 +10,20 @@
 #include <inttypes.h>
 #include <math.h>
 #include <float.h>
-#include <windows.h>
 #include <string.h>
 #include "payload.h"
 #include "payload_maths.h"
+
+internal u32 
+XorShift(u32 *State)
+{
+    u32 X = *State;
+    X ^= X << 13;
+    X ^= X >> 17;
+    X ^= X << 5;
+    *State = X;
+    return(X);
+}
 
 internal inline vertex
 Vertex(float X, float Y, float Z)
@@ -52,7 +61,6 @@ Ray(v3f O, v3f D, f32 Near, f32 Far)
     Result.InstID = RTC_INVALID_GEOMETRY_ID;
     return(Result);
 }
-
 
 internal inline RTCRayHit* 
 RayToRTCRayHit(ray *Ray)
@@ -207,7 +215,7 @@ void LoadOBJ(char* Filename,
     *Faces = (face*)
         rtcSetNewGeometryBuffer(*Mesh,RTC_BUFFER_TYPE_INDEX,0,RTC_FORMAT_UINT3,sizeof(face),NumberOfFaces);
     
-    *Materials = (material*)Alloc(NumberOfFaces*sizeof(material));
+    *Materials = (material*)malloc(NumberOfFaces*sizeof(material));
     material* MatPtr = *Materials;
     for(u32 I = 0; I < NumberOfFaces; I++)
     {
@@ -305,8 +313,8 @@ Pathtrace(camera *Camera,
     }
     return(Result/f32(BounceCount));
 }
-
-int main(int ArgCount, char** Args)
+#define EXPORT __declspec(dllexport)
+extern "C" EXPORT int Render(int ArgCount, char** Args)
 {
     char *rtconfig = "verbose=3,threads=12";
     
@@ -329,7 +337,7 @@ int main(int ArgCount, char** Args)
     rtcCommitScene(Scene);
     s32 W = 1280;
     s32 H = 720;
-    u32* Pixels = (u32*)Alloc(H*W*sizeof(u32));
+    u32* Pixels = (u32*)malloc(H*W*sizeof(u32));
     u32* PixelPtr = Pixels;
     
     camera Camera = {};
@@ -337,7 +345,7 @@ int main(int ArgCount, char** Args)
     Camera.LookAt = V3f(0, 0, -3);
     Camera.Origin = V3f(0,3,4);
     Camera.FOV = 50.0f;
-    u32 Samples = 100;
+    u32 Samples = 1;
     f32 Contrib = 1.0f/float(Samples);
     
     for(int Y = 0; Y < H; Y++)
@@ -379,8 +387,8 @@ int main(int ArgCount, char** Args)
         fwrite(Pixels, W*H*sizeof(u32), 1, Output);
         fclose(Output);
     }
-    
     free(V);
+    free(Pixels);
     free(F);
     rtcReleaseDevice(Device);
     return(0);
