@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <stdio.h>
 #include <stdint.h>
 #define internal static
 #define global static

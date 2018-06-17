@@ -313,8 +313,9 @@ Pathtrace(camera *Camera,
     }
     return(Result/f32(BounceCount));
 }
+
 #define EXPORT __declspec(dllexport)
-extern "C" EXPORT int Render(int ArgCount, char** Args)
+extern "C" EXPORT int  Render(int ArgCount, char** Args)
 {
     char *rtconfig = "verbose=3,threads=12";
     
@@ -387,9 +388,9 @@ extern "C" EXPORT int Render(int ArgCount, char** Args)
         fwrite(Pixels, W*H*sizeof(u32), 1, Output);
         fclose(Output);
     }
-    free(V);
-    free(Pixels);
-    free(F);
-    rtcReleaseDevice(Device);
+    else
+    {
+        fclose(Output);
+    }
     return(0);
 }
