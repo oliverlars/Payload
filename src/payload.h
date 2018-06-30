@@ -123,3 +123,28 @@ union colour
     u32 Pack;
 };
 
+struct image
+{
+    v3f* Pixels;
+    u32 Width, Height;
+};
+
+struct thread_info
+{
+    u32 XMin, XMax;
+    u32 YMin, YMax;
+    
+    image Image;
+    RTCScene* Scene;
+    material* Colours;
+    camera Camera;
+};
+
+struct thread_queue
+{
+    u32 WorkCount;
+    thread_info* ThreadInfos;
+    u32 Samples;
+    volatile u64 NextThreadIndex;
+    volatile u64 UsedTiles;
+};

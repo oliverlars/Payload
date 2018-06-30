@@ -1,18 +1,21 @@
 #include <stdio.h>
+#include <time.h>
 #include <assert.h>
 #include <immintrin.h>
 #include <xmmintrin.h>
 #include <pmmintrin.h>
 #include <embree3/include/rtcore.h>
 #include <stdlib.h>
-//_MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
-//_MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
 #include <inttypes.h>
 #include <math.h>
+#include <windows.h>
 #include <float.h>
 #include <string.h>
 #include "payload.h"
 #include "payload_maths.h"
+
+
+b32x PayloadRunning;
 
 internal u32 
 XorShift(u32 *State)
@@ -162,7 +165,6 @@ ColourToV3(colour A)
 internal inline f32
 RandUnilateral()
 {
-    //return (float(rand())/float(RAND_MAX));
     return(f32(XorShift(&RandomState))/f32(U32Max));
 }
 
@@ -233,7 +235,7 @@ void LoadOBJ(char* Filename,
         else
         {
             MatPtr->Emit = {0.0, 0.0, 0.0};
-            MatPtr->Colour = {0.8, 0.8, 0.8};
+            MatPtr->Colour = {0.8f, 0.8f, 0.8f};
         }
         *MatPtr++;
     }
@@ -268,59 +270,159 @@ void LoadOBJ(char* Filename,
     }
 }
 
-internal v3f
-Pathtrace(camera *Camera, 
-          f32 X, f32 Y,
-          f32 W, f32 H, 
-          RTCScene *Scene,
+internal void
+Pathtrace(camera* Camera, 
+          u32 W, u32 H,
+          v3f* Image,
+          RTCScene* Scene,
           material* Colours)
 {
     
     RTCIntersectContext Context;
     rtcInitIntersectContext(&Context);
     
-    ray Persp = CameraRay(Camera, W, H, X/W, Y/H);
-    
-    v3f Result = {0.f,0.f,0.f};
-    v3f Attenuation = V3f(1.,1.,1.);
-    v3f Sky = V3f(0.0, 0.0, 0.0);
-    u32 BounceCount;
-    for(BounceCount = 1; BounceCount < 10; BounceCount++)
+    for(s32 Y = 0; Y < H; Y++)
     {
-        rtcIntersect1(*Scene, &Context, RayToRTCRayHit(&Persp));
-        
-        if(Persp.GeomID != RTC_INVALID_GEOMETRY_ID)
+        for(s32 X = 0; X < W; X++)
         {
-            v3f Albedo = Colours[Persp.PrimID].Colour;
-            v3f Emit =  Colours[Persp.PrimID].Emit;
+            ray Persp = CameraRay(Camera, W, H, 
+                                  ((float)X + RandBilateral())/float(W), ((float)Y + RandBilateral())/float(H));
+            u32 BounceCount;
             
-            Result = Result + Hadamard(Emit, Attenuation);
-            if(LengthSqrd(Emit) > 0.0f)
+            v3f Result = {0.f,0.f,0.f};
+            v3f Attenuation = V3f(1.,1.,1.);
+            v3f Sky = V3f(0.5, 0.5, 0.5);
+            for(BounceCount = 1; BounceCount < 10; BounceCount++)
             {
-                return(Result/f32(BounceCount));
+                rtcIntersect1(*Scene, &Context, RayToRTCRayHit(&Persp));
+                
+                if(Persp.GeomID != RTC_INVALID_GEOMETRY_ID)
+                {
+                    v3f Albedo = Colours[Persp.PrimID].Colour;
+                    v3f Emit =  Colours[Persp.PrimID].Emit;
+                    Result = Result + Hadamard(Emit, Attenuation);
+                    if(LengthSqrd(Emit) > 0.0f)
+                    {
+                        Image[X + Y*W] = Result/f32(BounceCount);
+                        break;
+                        
+                    }
+                    Attenuation = Hadamard(Attenuation, Albedo);
+                    Persp = Ray(Persp.O + Persp.TFar*Persp.D,
+                                Unit(Persp.Ng) + V3f(RandBilateral(), RandBilateral(), RandBilateral()),
+                                0.001f, INF);
+                }
+                else
+                {
+                    Result = Result + Hadamard(Attenuation,Sky);
+                    Image[X + Y*W] = Result/f32(BounceCount);
+                    break;
+                }
                 
             }
-            Attenuation = Hadamard(Attenuation, Albedo);
-            Persp = Ray(Persp.O + Persp.TFar*Persp.D,
-                        Unit(Persp.Ng) + V3f(RandBilateral(), RandBilateral(), RandBilateral()),
-                        0.001f, INF);
-        }
-        else
-        {
-            Result = Result + Hadamard(Attenuation,Sky);
-            return(Result/f32(BounceCount));
         }
     }
-    return(Result/f32(BounceCount));
+    
 }
 
-#define EXPORT __declspec(dllexport)
-extern "C" EXPORT int  Render(int ArgCount, char** Args)
+internal u64
+LockedAdd(u64 volatile* A, u64 B)
 {
-    char *rtconfig = "verbose=3,threads=12";
+    u64 Result = InterlockedExchangeAdd64((volatile LONG64*)A, B);
+    return(Result);
+}
+
+internal b32x
+RenderTile(thread_queue* Queue)
+{
+    
+    RTCIntersectContext Context;
+    rtcInitIntersectContext(&Context);
+    u64 NextIndex = LockedAdd(&Queue->NextThreadIndex, 1);
+    
+    if(NextIndex >= Queue->WorkCount)
+    {
+        return(false);
+    }
+    
+    thread_info* Info = Queue->ThreadInfos + NextIndex;
+    
+    image Image = Info->Image;
+    u32 XMin = Info->XMin;
+    u32 YMin = Info->YMin;
+    u32 XMax = Info->XMax;
+    u32 YMax = Info->YMax;
+    
+    camera Camera = Info->Camera;
+    RTCScene* Scene = Info->Scene;
+    material* Colours = Info->Colours;
+    
+    for(s32 Y = YMin; Y < YMax; Y++)
+    {
+        for(s32 X = XMin; X < XMax; X++)
+        {
+            f32 Contrib = 1.0f/f32(Queue->Samples);
+            v3f Col = {};
+            for(s32 S = 1; S < Queue->Samples; S++)
+            {
+                ray Persp = CameraRay(&Camera, Image.Width, Image.Height, 
+                                      ((float)X + RandBilateral())/float(Image.Width), ((float)Y + RandBilateral())/float(Image.Height));
+                
+                u32 BounceCount;
+                v3f Result = {0.f,0.f,0.f};
+                v3f Attenuation = V3f(1.,1.,1.);
+                v3f Sky = {};
+                
+                for(BounceCount = 1; BounceCount < 10; BounceCount++)
+                {
+                    rtcIntersect1(*Scene, &Context, RayToRTCRayHit(&Persp));
+                    
+                    if(Persp.GeomID != RTC_INVALID_GEOMETRY_ID)
+                    {
+                        v3f Albedo = Colours[Persp.PrimID].Colour;
+                        v3f Emit =  Colours[Persp.PrimID].Emit;
+                        Result = Result + Hadamard(Emit, Attenuation);
+                        if(LengthSqrd(Emit) > 0.0f)
+                        {
+                            Col = Col + Result/f32(BounceCount);
+                            break;
+                            
+                        }
+                        Attenuation = Hadamard(Attenuation, Albedo);
+                        Persp = Ray(Persp.O + Persp.TFar*Persp.D,
+                                    Unit(Persp.Ng) + V3f(RandBilateral(), RandBilateral(), RandBilateral()),
+                                    0.001f, INF);
+                    }
+                    else
+                    {
+                        Result = Result + Hadamard(Attenuation,Sky);
+                        Col = Col + Result/f32(BounceCount);
+                        break;
+                    }
+                    
+                }
+                Image.Pixels[X + Y*Image.Width] = Contrib*Col;
+            }
+        }
+    }
+    LockedAdd(&Queue->UsedTiles, 1);
+    return(true);
+}
+
+internal DWORD WINAPI
+TileThread(void* lpParameter)
+{
+    thread_queue *Queue = (thread_queue*)lpParameter;
+    while(RenderTile(Queue)){}
+    return(0);
+}
+
+int main(int ArgCount, char** Args)
+{
+    char *rtconfig = "verbose=0,threads=12";
     
     RTCDevice Device = rtcNewDevice(rtconfig);
-    RandomState = 24;
+    RandomState = 25;
     RTCScene Scene = rtcNewScene(Device);
     rtcSetSceneBuildQuality(Scene, RTC_BUILD_QUALITY_HIGH);
     RTCGeometry Mesh = rtcNewGeometry (Device, RTC_GEOMETRY_TYPE_TRIANGLE);
@@ -329,17 +431,22 @@ extern "C" EXPORT int  Render(int ArgCount, char** Args)
     face* F = nullptr;
     material* Materials = nullptr;
     printf("Loading OBJ...\n");
-    LoadOBJ("Teapotlight.obj", &V, &F, &Mesh, &Materials);
-    
+    LoadOBJ("Teapotlight.obj", 
+            &V, &F, &Mesh, &Materials);
+    printf("Finished loading OBJ\n");
     rtcCommitGeometry(Mesh);
     u32 geomID = rtcAttachGeometry(Scene,Mesh);
     rtcReleaseGeometry(Mesh);
     
     rtcCommitScene(Scene);
-    s32 W = 1280;
-    s32 H = 720;
-    u32* Pixels = (u32*)malloc(H*W*sizeof(u32));
-    u32* PixelPtr = Pixels;
+    s32 W = 1920;
+    s32 H = 1080;
+    v3f* Pixels = (v3f*)malloc(H*W*sizeof(v3f));
+    v3f* PixelPtr = Pixels;
+    image Image = {};
+    Image.Width = W;
+    Image.Height = H;
+    Image.Pixels = Pixels;
     
     camera Camera = {};
     Camera.Up = V3f(0,1,0);
@@ -348,22 +455,71 @@ extern "C" EXPORT int  Render(int ArgCount, char** Args)
     Camera.FOV = 50.0f;
     u32 Samples = 1;
     f32 Contrib = 1.0f/float(Samples);
+    u32 CountSamples = 1;
     
-    for(int Y = 0; Y < H; Y++)
+    
+    v3f Col = {0.0f, 0.0f, 0.0f};
+    //Pathtrace(&Camera,W, H,Pixels,&Scene, Materials);
+    
+    u32 TileSize = 64;
+    u32 TileCountX = (W + TileSize -1)/TileSize;
+    u32 TileCountY = (H + TileSize -1)/TileSize;
+    
+    thread_queue Queue = {};
+    Queue.Samples = 100;
+    Queue.ThreadInfos = (thread_info*)malloc(TileCountY*TileCountX*sizeof(thread_info));
+    
+    clock_t Start = clock();
+    for(u32 TileY = 0; TileY < TileCountY; TileY++)
     {
-        printf("\rRendering... %.2f%%", 100.0*(float(Y)/float(H)));
-        for(int X = 0; X < W; X++)
+        u32 YMin = TileY*TileSize;
+        u32 YMax = YMin + TileSize;
+        YMax = YMax > H ? H : YMax;
+        
+        for(u32 TileX = 0; TileX < TileCountX; TileX++)
         {
-            v3f Col = {0.0f, 0.0f, 0.0f};
-            for(int S = 0; S < Samples; S++)
-            {
-                Col = Col+ Contrib*Pathtrace(&Camera, 
-                                             float(X) + RandBilateral(),
-                                             float(Y) + RandBilateral(), W, H, &Scene, Materials);
-            }
-            PixelPtr[X + Y*W] = PackV3(Col);
+            u32 XMin = TileX*TileSize;
+            u32 XMax = XMin + TileSize;
+            XMax = XMax > W ? W : XMax;
+            
+            thread_info* ThreadInfo = Queue.ThreadInfos + Queue.WorkCount++;
+            assert(Queue.WorkCount <= TileCountX*TileCountY);
+            ThreadInfo->Scene = &Scene;
+            ThreadInfo->Camera = Camera;
+            ThreadInfo->Colours = Materials;
+            ThreadInfo->Image = Image;
+            ThreadInfo->XMin = XMin;
+            ThreadInfo->YMin = YMin;
+            ThreadInfo->XMax = XMax;
+            ThreadInfo->YMax = YMax;
+            
         }
     }
+    
+    
+    for(u32 Cores = 1;
+        Cores < 12;
+        Cores++)
+    {
+        DWORD ThreadID;
+        HANDLE ThreadHandle = CreateThread(0,0,TileThread, &Queue, 0, &ThreadID);
+        CloseHandle(ThreadHandle);
+    }
+    
+    while(Queue.UsedTiles < TileCountX*TileCountY)
+    {
+        if(RenderTile(&Queue))
+        {
+            fprintf(stderr, "\rRendering %d%%... ",
+                    100*(u32)Queue.UsedTiles/(TileCountY*TileCountX));
+            fflush(stdout);
+        }
+    }
+    
+    clock_t End = clock();
+    clock_t Total = (End - Start);
+    
+    printf("Rendering Took: %dms\n", Total);
     
     bitmap_header Header = {};
     Header.FileType = 0x4D42;
@@ -384,13 +540,23 @@ extern "C" EXPORT int  Render(int ArgCount, char** Args)
     FILE *Output = fopen("out.bmp", "wb");
     if(Output)
     {
+        PixelPtr = Pixels;
         fwrite(&Header, sizeof(Header), 1, Output);
-        fwrite(Pixels, W*H*sizeof(u32), 1, Output);
+        for(int Y = 0; Y < H; Y++)
+        {
+            for(int X = 0; X < W; X++)
+            {
+                u32 P = PackV3(*PixelPtr++);
+                fwrite(&P, 1, sizeof(P), Output);
+            }
+        }
+        
         fclose(Output);
     }
     else
     {
         fclose(Output);
     }
+    
     return(0);
 }
