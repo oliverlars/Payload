@@ -13,20 +13,9 @@
 #include <string.h>
 #include "payload.h"
 #include "payload_maths.h"
-
+#include "payload_brdf.cc"
 
 b32x PayloadRunning;
-
-internal u32 
-XorShift(u32 *State)
-{
-    u32 X = *State;
-    X ^= X << 13;
-    X ^= X >> 17;
-    X ^= X << 5;
-    *State = X;
-    return(X);
-}
 
 internal inline vertex
 Vertex(float X, float Y, float Z)
@@ -37,33 +26,7 @@ Vertex(float X, float Y, float Z)
     Result.Z = Z;
 }
 
-global u32 RandomState;
 
-internal inline v3f
-V3f(f32 X, f32 Y, f32 Z)
-{
-    v3f Result = {X, Y, Z};
-    return(Result);
-}
-
-internal inline ray
-Ray(v3f O, v3f D, f32 Near, f32 Far)
-{
-    ray Result;
-    Result.O = O;
-    Result.D = D;
-    Result.TNear = Near;
-    Result.Time = 0.0;
-    Result.TFar = Far;
-    Result.Mask = -1;
-    Result.ID = 0;
-    Result.Ng = {0.0, 0.0, 0.0};
-    Result.Flags = 0;
-    Result.GeomID = RTC_INVALID_GEOMETRY_ID;
-    Result.PrimID = RTC_INVALID_GEOMETRY_ID;
-    Result.InstID = RTC_INVALID_GEOMETRY_ID;
-    return(Result);
-}
 
 internal inline RTCRayHit* 
 RayToRTCRayHit(ray *Ray)
@@ -162,18 +125,6 @@ ColourToV3(colour A)
     return(Result);
 }
 
-internal inline f32
-RandUnilateral()
-{
-    return(f32(XorShift(&RandomState))/f32(U32Max));
-}
-
-internal inline f32
-RandBilateral()
-{
-    return 2.0f*RandUnilateral() - 1.0f;
-}
-
 internal inline v3f
 Hadamard(v3f A, v3f B)
 {
@@ -181,27 +132,55 @@ Hadamard(v3f A, v3f B)
     return(Result);
 }
 
-void LoadOBJ(char* Filename, 
-             vertex** Vertices,
-             face** Faces,
-             RTCGeometry *Mesh,
-             material** Materials)
+internal b32x
+GetLine(char* Line, u32 Size,  char** Buffer, u32 NumElements, u32* CurrentElement)
 {
-    FILE* File = fopen(Filename, "r");
+    if(*CurrentElement == NumElements)
+    {
+        return(false);
+    }
+    char* CurrentChar = Line;
+    char* TempBuffer = *Buffer;
+    memset(Line, 0, Size);
+    do
+    {
+        (*CurrentElement)++;
+        *CurrentChar++ = *TempBuffer;
+    } while(*TempBuffer++ != '\n');
+    
+    *Buffer = TempBuffer;
+    return true;
+}
+
+internal void
+LoadOBJ(char* Filename, 
+        vertex** Vertices,
+        face** Faces,
+        RTCGeometry *Mesh,
+        material** Materials)
+{
+    HANDLE File = CreateFileA(Filename, GENERIC_READ,0,
+                              NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+                              NULL);
+    
+    u32 FileSize = GetFileSize(File, NULL);
+    char* Buffer = reinterpret_cast<char*>(malloc(FileSize*sizeof(u8)));
+    char* BufferPtr = Buffer;
+    ReadFile(File, Buffer, FileSize, 0, 0);
     char Line[256];
     char Type[3];
     s64 NumberOfLines = 0;
     s64 NumberOfVertices = 0;
     s64 NumberOfFaces = 0;
-    if(File)
+    u32 CurrentSize = 0;
+    if(File != INVALID_HANDLE_VALUE)
     {
-        while(fgets(Line, sizeof(Line), File))
+        while(GetLine(Line, sizeof(Line), &BufferPtr, FileSize, &CurrentSize))
         {
             NumberOfLines++;
             if(strstr(Line, "v ") != NULL)
             {
                 NumberOfVertices++;
-                
             }
             if(strstr(Line, "f ") != NULL)
             {
@@ -209,7 +188,6 @@ void LoadOBJ(char* Filename,
             }
         }
     }
-    rewind(File);
     *Vertices =(vertex*)
         rtcSetNewGeometryBuffer(*Mesh,RTC_BUFFER_TYPE_VERTEX,0,RTC_FORMAT_FLOAT3,sizeof(vertex),NumberOfVertices);
     
@@ -240,14 +218,15 @@ void LoadOBJ(char* Filename,
         *MatPtr++;
     }
     face* FacePtr = *Faces;
-    
-    while(fgets(Line, sizeof(Line), File))
+    BufferPtr = Buffer;
+    CurrentSize = 0;
+    while(GetLine(Line, sizeof(Line), &BufferPtr, FileSize, &CurrentSize))
     {
         if(strstr(Line, "v ") != NULL)
         {
             vertex Vert = {};
             f32 X = 0; f32 Y = 0; f32 Z = 0;
-            sscanf(Line, "%s %f %f %f", Type,&(X), &(Y), &(Z));
+            sscanf(Line, "%s %f %f %f", Type, &X, &Y, &Z);
             Vert.X = X;
             Vert.Y = Y;
             Vert.Z = Z;
@@ -261,15 +240,17 @@ void LoadOBJ(char* Filename,
             u32 A,B,C,D,E,F;
             sscanf(Line, 
                    "%s %u/%u/%u %u/%u/%u %u/%u/%u",
-                   Type, &(V0), &A, &B, &(V1), &C, &D, &(V2), &E, &F);
+                   Type, &V0, &A, &B, &V1, &C, &D, &V2, &E, &F);
             Tri.V0 = V0-1;
             Tri.V1 = V1-1;
             Tri.V2 = V2-1;
             *FacePtr++ = Tri;
         }
     }
+    free(Buffer);
 }
 
+#if 0
 internal void
 Pathtrace(camera* Camera, 
           u32 W, u32 H,
@@ -285,8 +266,6 @@ Pathtrace(camera* Camera,
     {
         for(s32 X = 0; X < W; X++)
         {
-            ray Persp = CameraRay(Camera, W, H, 
-                                  ((float)X + RandBilateral())/float(W), ((float)Y + RandBilateral())/float(H));
             u32 BounceCount;
             
             v3f Result = {0.f,0.f,0.f};
@@ -324,6 +303,7 @@ Pathtrace(camera* Camera,
     }
     
 }
+#endif
 
 internal u64
 LockedAdd(u64 volatile* A, u64 B)
@@ -363,10 +343,10 @@ RenderTile(thread_queue* Queue)
         {
             f32 Contrib = 1.0f/f32(Queue->Samples);
             v3f Col = {};
-            for(s32 S = 1; S < Queue->Samples; S++)
+            for(s32 S = 0; S < Queue->Samples; S++)
             {
                 ray Persp = CameraRay(&Camera, Image.Width, Image.Height, 
-                                      ((float)X + RandBilateral())/float(Image.Width), ((float)Y + RandBilateral())/float(Image.Height));
+                                      ((float)X + RandBilateral(&Info->RandomState))/float(Image.Width), ((float)Y + RandBilateral(&Info->RandomState))/float(Image.Height));
                 
                 u32 BounceCount;
                 v3f Result = {0.f,0.f,0.f};
@@ -390,7 +370,7 @@ RenderTile(thread_queue* Queue)
                         }
                         Attenuation = Hadamard(Attenuation, Albedo);
                         Persp = Ray(Persp.O + Persp.TFar*Persp.D,
-                                    Unit(Persp.Ng) + V3f(RandBilateral(), RandBilateral(), RandBilateral()),
+                                    Unit(Persp.Ng) + V3f(RandBilateral(&Info->RandomState), RandBilateral(&Info->RandomState), RandBilateral(&Info->RandomState)),
                                     0.001f, INF);
                     }
                     else
@@ -422,7 +402,6 @@ int main(int ArgCount, char** Args)
     char *rtconfig = "verbose=0,threads=12";
     
     RTCDevice Device = rtcNewDevice(rtconfig);
-    RandomState = 25;
     RTCScene Scene = rtcNewScene(Device);
     rtcSetSceneBuildQuality(Scene, RTC_BUILD_QUALITY_HIGH);
     RTCGeometry Mesh = rtcNewGeometry (Device, RTC_GEOMETRY_TYPE_TRIANGLE);
@@ -466,7 +445,7 @@ int main(int ArgCount, char** Args)
     u32 TileCountY = (H + TileSize -1)/TileSize;
     
     thread_queue Queue = {};
-    Queue.Samples = 100;
+    Queue.Samples = 2;
     Queue.ThreadInfos = (thread_info*)malloc(TileCountY*TileCountX*sizeof(thread_info));
     
     clock_t Start = clock();
@@ -492,6 +471,7 @@ int main(int ArgCount, char** Args)
             ThreadInfo->YMin = YMin;
             ThreadInfo->XMax = XMax;
             ThreadInfo->YMax = YMax;
+            ThreadInfo->RandomState = 25;
             
         }
     }

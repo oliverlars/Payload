@@ -26,6 +26,7 @@ typedef double f64;
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
 #define INF FLT_MAX
 
+
 union v3f
 {
     struct
@@ -34,6 +35,7 @@ union v3f
     };
     f32 E[3];
 };
+
 struct array
 {
     array(u64 Size)
@@ -50,10 +52,53 @@ struct vertex
     f32 X,Y,Z,R;
 };
 
+struct diffuse
+{
+    v3f Colour;
+};
+
+enum mat_type
+{
+    DIFFUSE,
+    GLOSSY,
+    GLASS
+};
+
+struct glossy
+{
+    v3f Colour;
+    f32 Roughness;
+};
+
+struct glass
+{
+    v3f Colour;
+    f32 IOR;
+    f32 Roughness;
+};
+
+struct material;
+
+struct mix
+{
+    material* A;
+    material* B;
+    f32 Factor;
+};
+
 struct material
 {
     v3f Colour;
     v3f Emit;
+    
+    mat_type Type;
+    union
+    {
+        glossy Glossy;
+        diffuse Diffuse;
+        glass Glass;
+        mix Mix;
+    };
 };
 
 struct face
@@ -138,6 +183,7 @@ struct thread_info
     RTCScene* Scene;
     material* Colours;
     camera Camera;
+    u32 RandomState;
 };
 
 struct thread_queue
@@ -148,3 +194,53 @@ struct thread_queue
     volatile u64 NextThreadIndex;
     volatile u64 UsedTiles;
 };
+
+
+internal u32
+XorShift(u32 *State)
+{
+    u32 X = *State;
+    X ^= X << 13;
+    X ^= X >> 17;
+    X ^= X << 5;
+    *State = X;
+    return(X);
+}
+
+internal inline v3f
+V3f(f32 X, f32 Y, f32 Z)
+{
+    v3f Result = {X, Y, Z};
+    return(Result);
+}
+
+internal inline ray
+Ray(v3f O, v3f D, f32 Near, f32 Far)
+{
+    ray Result;
+    Result.O = O;
+    Result.D = D;
+    Result.TNear = Near;
+    Result.Time = 0.0;
+    Result.TFar = Far;
+    Result.Mask = -1;
+    Result.ID = 0;
+    Result.Ng = {0.0, 0.0, 0.0};
+    Result.Flags = 0;
+    Result.GeomID = RTC_INVALID_GEOMETRY_ID;
+    Result.PrimID = RTC_INVALID_GEOMETRY_ID;
+    Result.InstID = RTC_INVALID_GEOMETRY_ID;
+    return(Result);
+}
+
+internal inline f32
+RandUnilateral(u32 *RandomState)
+{
+    return(f32(XorShift(RandomState))/f32(U32Max));
+}
+
+internal inline f32
+RandBilateral(u32* RandomState)
+{
+    return 2.0f*RandUnilateral(RandomState) - 1.0f;
+}
