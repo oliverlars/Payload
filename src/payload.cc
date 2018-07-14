@@ -15,7 +15,6 @@
 #include "payload_maths.h"
 #include "payload_brdf.cc"
 
-b32x PayloadRunning;
 
 internal inline vertex
 Vertex(float X, float Y, float Z)
@@ -157,7 +156,7 @@ LoadOBJ(char* Filename,
         vertex** Vertices,
         face** Faces,
         RTCGeometry *Mesh,
-        material** Materials)
+        u32** Materials)
 {
     HANDLE File = CreateFileA(Filename, GENERIC_READ,0,
                               NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
@@ -195,27 +194,22 @@ LoadOBJ(char* Filename,
     *Faces = (face*)
         rtcSetNewGeometryBuffer(*Mesh,RTC_BUFFER_TYPE_INDEX,0,RTC_FORMAT_UINT3,sizeof(face),NumberOfFaces);
     
-    *Materials = (material*)malloc(NumberOfFaces*sizeof(material));
-    material* MatPtr = *Materials;
+    *Materials = (u32*)malloc(NumberOfFaces*sizeof(u32));
+    
+    u32* MatPtr = *Materials;
     for(u32 I = 0; I < NumberOfFaces; I++)
     {
-#if 0
-        MatPtr->R = rand() % 255;
-        MatPtr->G = rand() % 255;
-        MatPtr->A = 255;
-#endif
-        
+#if 1
         if(I > NumberOfFaces-3)
         {
-            MatPtr->Emit  = {1.f, 1.f, 1.f};
-            MatPtr->Colour = {0.,0.,0.};
+            *MatPtr = 2;
         }
         else
         {
-            MatPtr->Emit = {0.0, 0.0, 0.0};
-            MatPtr->Colour = {0.8f, 0.8f, 0.8f};
+            *MatPtr = 1;
         }
-        *MatPtr++;
+#endif
+        MatPtr++;
     }
     face* FacePtr = *Faces;
     BufferPtr = Buffer;
@@ -250,61 +244,6 @@ LoadOBJ(char* Filename,
     free(Buffer);
 }
 
-#if 0
-internal void
-Pathtrace(camera* Camera, 
-          u32 W, u32 H,
-          v3f* Image,
-          RTCScene* Scene,
-          material* Colours)
-{
-    
-    RTCIntersectContext Context;
-    rtcInitIntersectContext(&Context);
-    
-    for(s32 Y = 0; Y < H; Y++)
-    {
-        for(s32 X = 0; X < W; X++)
-        {
-            u32 BounceCount;
-            
-            v3f Result = {0.f,0.f,0.f};
-            v3f Attenuation = V3f(1.,1.,1.);
-            v3f Sky = V3f(0.5, 0.5, 0.5);
-            for(BounceCount = 1; BounceCount < 10; BounceCount++)
-            {
-                rtcIntersect1(*Scene, &Context, RayToRTCRayHit(&Persp));
-                
-                if(Persp.GeomID != RTC_INVALID_GEOMETRY_ID)
-                {
-                    v3f Albedo = Colours[Persp.PrimID].Colour;
-                    v3f Emit =  Colours[Persp.PrimID].Emit;
-                    Result = Result + Hadamard(Emit, Attenuation);
-                    if(LengthSqrd(Emit) > 0.0f)
-                    {
-                        Image[X + Y*W] = Result/f32(BounceCount);
-                        break;
-                        
-                    }
-                    Attenuation = Hadamard(Attenuation, Albedo);
-                    Persp = Ray(Persp.O + Persp.TFar*Persp.D,
-                                Unit(Persp.Ng) + V3f(RandBilateral(), RandBilateral(), RandBilateral()),
-                                0.001f, INF);
-                }
-                else
-                {
-                    Result = Result + Hadamard(Attenuation,Sky);
-                    Image[X + Y*W] = Result/f32(BounceCount);
-                    break;
-                }
-                
-            }
-        }
-    }
-    
-}
-#endif
-
 internal u64
 LockedAdd(u64 volatile* A, u64 B)
 {
@@ -335,7 +274,8 @@ RenderTile(thread_queue* Queue)
     
     camera Camera = Info->Camera;
     RTCScene* Scene = Info->Scene;
-    material* Colours = Info->Colours;
+    material* Materials = Info->Materials;
+    u32* MatIndices = Info->MatIndices;
     
     for(s32 Y = YMin; Y < YMax; Y++)
     {
@@ -346,12 +286,12 @@ RenderTile(thread_queue* Queue)
             for(s32 S = 0; S < Queue->Samples; S++)
             {
                 ray Persp = CameraRay(&Camera, Image.Width, Image.Height, 
-                                      ((float)X + RandBilateral(&Info->RandomState))/float(Image.Width), ((float)Y + RandBilateral(&Info->RandomState))/float(Image.Height));
+                                      ((f32)X + RandBilateral(&Info->RandomState))/f32(Image.Width), ((f32)Y + RandBilateral(&Info->RandomState))/f32(Image.Height));
                 
                 u32 BounceCount;
                 v3f Result = {0.f,0.f,0.f};
                 v3f Attenuation = V3f(1.,1.,1.);
-                v3f Sky = {};
+                v3f Sky = {0.5,0.5,0.5};
                 
                 for(BounceCount = 1; BounceCount < 10; BounceCount++)
                 {
@@ -359,8 +299,11 @@ RenderTile(thread_queue* Queue)
                     
                     if(Persp.GeomID != RTC_INVALID_GEOMETRY_ID)
                     {
-                        v3f Albedo = Colours[Persp.PrimID].Colour;
-                        v3f Emit =  Colours[Persp.PrimID].Emit;
+                        u32 MatIndex = MatIndices[Persp.PrimID];
+                        
+                        material Material = Materials[MatIndex];
+                        v3f Albedo = Material.Colour;
+                        v3f Emit =  Material.Emit;
                         Result = Result + Hadamard(Emit, Attenuation);
                         if(LengthSqrd(Emit) > 0.0f)
                         {
@@ -369,9 +312,18 @@ RenderTile(thread_queue* Queue)
                             
                         }
                         Attenuation = Hadamard(Attenuation, Albedo);
-                        Persp = Ray(Persp.O + Persp.TFar*Persp.D,
-                                    Unit(Persp.Ng) + V3f(RandBilateral(&Info->RandomState), RandBilateral(&Info->RandomState), RandBilateral(&Info->RandomState)),
-                                    0.001f, INF);
+                        
+                        
+                        switch(Material.Type)
+                        {
+                            case DIFFUSE:
+                            DiffuseBRDF(&Persp, &Info->RandomState);
+                            break;
+                            case GLOSSY:
+                            GlossyBRDF(&Persp, &Info->RandomState);
+                            break;
+                        }
+                        
                     }
                     else
                     {
@@ -408,10 +360,21 @@ int main(int ArgCount, char** Args)
     
     vertex* V = nullptr;
     face* F = nullptr;
-    material* Materials = nullptr;
+    material Materials[3] = {};
+    u32* MatIndices;
+    
+    Materials[0].Type = mat_type::DIFFUSE;
+    Materials[0].Colour = {1.0, 0.0, 0.0};
+    
+    Materials[1].Type = mat_type::GLOSSY;
+    Materials[1].Colour = {0.0, 1.0, 0.0};
+    
+    Materials[2].Type = mat_type::DIFFUSE;
+    Materials[2].Emit = {1.0,1.0,1.0};
+    
     printf("Loading OBJ...\n");
     LoadOBJ("Teapotlight.obj", 
-            &V, &F, &Mesh, &Materials);
+            &V, &F, &Mesh, &MatIndices);
     printf("Finished loading OBJ\n");
     rtcCommitGeometry(Mesh);
     u32 geomID = rtcAttachGeometry(Scene,Mesh);
@@ -438,14 +401,13 @@ int main(int ArgCount, char** Args)
     
     
     v3f Col = {0.0f, 0.0f, 0.0f};
-    //Pathtrace(&Camera,W, H,Pixels,&Scene, Materials);
     
     u32 TileSize = 64;
     u32 TileCountX = (W + TileSize -1)/TileSize;
     u32 TileCountY = (H + TileSize -1)/TileSize;
     
     thread_queue Queue = {};
-    Queue.Samples = 2;
+    Queue.Samples = 10;
     Queue.ThreadInfos = (thread_info*)malloc(TileCountY*TileCountX*sizeof(thread_info));
     
     clock_t Start = clock();
@@ -465,17 +427,16 @@ int main(int ArgCount, char** Args)
             assert(Queue.WorkCount <= TileCountX*TileCountY);
             ThreadInfo->Scene = &Scene;
             ThreadInfo->Camera = Camera;
-            ThreadInfo->Colours = Materials;
+            ThreadInfo->Materials = Materials;
+            ThreadInfo->MatIndices = MatIndices;
             ThreadInfo->Image = Image;
             ThreadInfo->XMin = XMin;
             ThreadInfo->YMin = YMin;
             ThreadInfo->XMax = XMax;
             ThreadInfo->YMax = YMax;
             ThreadInfo->RandomState = 25;
-            
         }
     }
-    
     
     for(u32 Cores = 1;
         Cores < 12;

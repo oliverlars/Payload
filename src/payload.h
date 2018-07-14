@@ -36,17 +36,6 @@ union v3f
     f32 E[3];
 };
 
-struct array
-{
-    array(u64 Size)
-    {
-        
-    }
-    
-    u64 Size;
-    
-};
-
 struct vertex
 {
     f32 X,Y,Z,R;
@@ -54,7 +43,7 @@ struct vertex
 
 struct diffuse
 {
-    v3f Colour;
+    f32 Roughness;
 };
 
 enum mat_type
@@ -66,13 +55,11 @@ enum mat_type
 
 struct glossy
 {
-    v3f Colour;
     f32 Roughness;
 };
 
 struct glass
 {
-    v3f Colour;
     f32 IOR;
     f32 Roughness;
 };
@@ -88,10 +75,9 @@ struct mix
 
 struct material
 {
-    v3f Colour;
-    v3f Emit;
-    
     mat_type Type;
+    v3f Emit;
+    v3f Colour;
     union
     {
         glossy Glossy;
@@ -181,7 +167,8 @@ struct thread_info
     
     image Image;
     RTCScene* Scene;
-    material* Colours;
+    material* Materials;
+    u32* MatIndices;
     camera Camera;
     u32 RandomState;
 };

@@ -1,31 +1,20 @@
 
 
-internal ray
-DiffuseBRDF(v3f HitLocation, u32* RandomState)
+internal void
+DiffuseBRDF(ray* In, u32* RandomState)
 {
-    ray Result;
-    v3f Direction = V3f(RandBilateral(RandomState),
-                        RandBilateral(RandomState),
-                        RandBilateral(RandomState));
+    v3f Direction = Unit(In->Ng) + V3f(RandBilateral(RandomState),
+                                       RandBilateral(RandomState),
+                                       RandBilateral(RandomState));
     
-    Result = Ray(HitLocation, Direction, 1e-5, INF);
-    return Result;
+    *In = Ray(In->O + In->TFar*In->D, Direction, 1e-5, INF);
 }
 
-internal ray
-GlossyBRDF(v3f HitLocation, u32* RandomState)
+internal void
+GlossyBRDF(ray* In, u32* RandomState)
 {
-    
-}
-
-internal ray
-GlassBRDF(v3f HitLocation)
-{
-    
-}
-
-internal ray
-MixBRDF(v3f HitLocation)
-{
-    
+    v3f Offset = V3f(RandBilateral(RandomState),
+                     RandBilateral(RandomState),
+                     RandBilateral(RandomState))*0.2;
+    *In = Ray(In->O + In->TFar*In->D,In->D - Unit(In->Ng)* 2.0*Inner(In->D, Unit(In->Ng)) + Offset, 1e-5, INF);
 }
