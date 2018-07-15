@@ -36,6 +36,18 @@ union v3f
     f32 E[3];
 };
 
+union mat3
+{
+    struct
+    {
+        f32 M00, M01, M02;
+        f32 M10, M11, M12;
+        f32 M20, M21, M22;
+    };
+    f32 E[9];
+};
+
+
 struct vertex
 {
     f32 X,Y,Z,R;

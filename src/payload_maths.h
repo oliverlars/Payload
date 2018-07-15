@@ -59,6 +59,16 @@ operator*(f32 B,v3f A)
 }
 
 internal v3f
+operator*(mat3 B, v3f A)
+{
+    v3f Result;
+    Result.X = A.X*B.M00 + A.Y*B.M01 + A.Z*B.M02;
+    Result.Y = A.X*B.M10 + A.Y*B.M11 + A.Z*B.M12;
+    Result.Z = A.X*B.M20 + A.Y*B.M21 + A.Z*B.M22;
+    return(Result);
+}
+
+internal v3f
 operator/(v3f A, f32 B)
 {
     v3f Result;

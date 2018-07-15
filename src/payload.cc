@@ -13,6 +13,7 @@
 #include <string.h>
 #include "payload.h"
 #include "payload_maths.h"
+#include "payload_transforms.cc"
 #include "payload_brdf.cc"
 
 
@@ -52,9 +53,14 @@ CameraRay(camera* Camera, s32 Width, s32 Height, f32 S, f32 T)
     v3f BottomLeftCorner = Camera->Origin - HalfWidth*U - V*HalfHeight - Eye;
     v3f Horizontal = 2*U*HalfWidth;
     v3f Vertical = 2*V*HalfHeight;
-    
+    v3f Direction =BottomLeftCorner + Horizontal*S + Vertical*T - Camera->Origin;
     ray Result;
-    Result = Ray(Camera->Origin, BottomLeftCorner + Horizontal*S + Vertical*T - Camera->Origin,
+    
+    //RotateX(&Direction, 0.2);
+    //RotateY(&Direction, 0.2);
+    //RotateZ(&Direction, 5.0);
+    
+    Result = Ray(Camera->Origin, Direction,
                  0.0f, INF);
     return(Result);
 }
