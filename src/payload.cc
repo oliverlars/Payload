@@ -73,8 +73,8 @@ CameraRay(camera* Camera, s32 Width, s32 Height, f32 S, f32 T)
     v3f ScreenPos = Centre + S*HalfW*XDir + T*HalfH*YDir;
     
     v3f Dir = ScreenPos - V3f(0,1,0);
-    RotateX(&Dir, 1.2);
-    //RotateY(&Dir, 0);
+    RotateX(&Dir, 1.25);
+    RotateY(&Dir, -0.349);
     //RotateZ(&Dir, 0);
     ray Result;
     Result = Ray(Camera->Origin,Dir, 0.0f, INF);
@@ -183,9 +183,7 @@ LoadOBJ(char* Filename,
         RTCGeometry *Mesh,
         u32** Materials)
 {
-    HANDLE File = CreateFileA(Filename, GENERIC_READ,0,
-                              NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
-                              NULL);
+    HANDLE File = CreateFileA(Filename, GENERIC_READ,0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     
     u32 FileSize = GetFileSize(File, NULL);
     char* Buffer = reinterpret_cast<char*>(malloc(FileSize*sizeof(u8)));
@@ -212,12 +210,10 @@ LoadOBJ(char* Filename,
             }
         }
     }
-    *Vertices =(vertex*)
-        rtcSetNewGeometryBuffer(*Mesh,RTC_BUFFER_TYPE_VERTEX,0,RTC_FORMAT_FLOAT3,sizeof(vertex),NumberOfVertices);
+    *Vertices =(vertex*)rtcSetNewGeometryBuffer(*Mesh,RTC_BUFFER_TYPE_VERTEX,0,RTC_FORMAT_FLOAT3,sizeof(vertex),NumberOfVertices);
     
     vertex* VerticePtr = *Vertices;
-    *Faces = (face*)
-        rtcSetNewGeometryBuffer(*Mesh,RTC_BUFFER_TYPE_INDEX,0,RTC_FORMAT_UINT3,sizeof(face),NumberOfFaces);
+    *Faces = (face*)rtcSetNewGeometryBuffer(*Mesh,RTC_BUFFER_TYPE_INDEX,0,RTC_FORMAT_UINT3,sizeof(face),NumberOfFaces);
     
     *Materials = (u32*)malloc(NumberOfFaces*sizeof(u32));
     

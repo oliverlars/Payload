@@ -1,5 +1,4 @@
 
-internal 
 
 
 internal void
@@ -22,8 +21,8 @@ RotateY(v4* A, f32 Angle)
     mat4 RotationMatrix =
     {
         cos(Angle), 0, sin(Angle),
-        0, 1, 0,0
-            -sin(Angle), 0, cos(Angle),1,
+        0, 1, 0,0,
+        -sin(Angle), 0, cos(Angle),1,
         0,0,0,1,
     };
     
