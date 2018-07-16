@@ -16,18 +16,6 @@
 #include "payload_transforms.cc"
 #include "payload_brdf.cc"
 
-
-internal inline vertex
-Vertex(float X, float Y, float Z)
-{
-    vertex Result;
-    Result.X = X;
-    Result.Y = Y;
-    Result.Z = Z;
-}
-
-
-
 internal inline RTCRayHit* 
 RayToRTCRayHit(ray *Ray)
 {
@@ -76,23 +64,20 @@ CameraRay(camera* Camera, s32 Width, s32 Height, f32 S, f32 T)
 {
     f32 Theta = Camera->FOV * Pi32 / 180.0f;
     f32 Aspect = (f32)Width/(f32)Height;
-    v3f ZDir = {};
-    v3f XDir = Unit(Cross(ZDir,V3f(0,0,-1)));
+    v3f ZDir = {0,1,0};
+    v3f XDir = Unit(Cross(ZDir,V3f(0,0,1)));
     v3f YDir = Unit(Cross(ZDir, XDir));
-    v3f Centre = Camera->Origin - ZDir;
+    v3f Centre =  {};
     f32 HalfH = tanf(Theta/2.0f);
     f32 HalfW = HalfH*Aspect;
     v3f ScreenPos = Centre + S*HalfW*XDir + T*HalfH*YDir;
     
-    v4 Dir = V3ToV4(ScreenPos - Camera->Origin);
-    
-    RotateX(&Dir, 0);
-    RotateY(&Dir, 0);
-    RotateZ(&Dir, 0);
-    
-    Translate(&Dir, 0, 3, 4);
+    v3f Dir = ScreenPos - V3f(0,1,0);
+    RotateX(&Dir, 1.2);
+    //RotateY(&Dir, 0);
+    //RotateZ(&Dir, 0);
     ray Result;
-    Result = Ray(Camera->Origin,V4ToV3(Dir), 0.0f, INF);
+    Result = Ray(Camera->Origin,Dir, 0.0f, INF);
     
     return(Result);
     
@@ -319,14 +304,16 @@ RenderTile(thread_queue* Queue)
     
     for(s32 Y = YMin; Y < YMax; Y++)
     {
-        f32 ScreenY =-1.0 +2.0f*(((f32)Y + RandBilateral(&Info->RandomState))/(f32)Image.Height);
+
         for(s32 X = XMin; X < XMax; X++)
         {
-            f32 ScreenX =-1.0f+2.0f*((f32)X + RandBilateral(&Info->RandomState))/f32(Image.Width);
+            
             f32 Contrib = 1.0f/f32(Queue->Samples);
             v3f Col = {};
             for(s32 S = 0; S < Queue->Samples; S++)
             {
+                f32 ScreenX =-1.0f+2.0f*((f32)X + RandBilateral(&Info->RandomState))/f32(Image.Width);
+                f32 ScreenY =-1.0 +2.0f*(((f32)Y + RandBilateral(&Info->RandomState))/(f32)Image.Height);
                 ray Persp = CameraRay(&Camera, Image.Width, 
                                       Image.Height, ScreenX, ScreenY);
                 
@@ -412,7 +399,7 @@ int main(int ArgCount, char** Args)
     Materials[1].Colour = {0.0, 1.0, 0.0};
     
     Materials[2].Type = mat_type::DIFFUSE;
-    Materials[2].Emit = {1.0,1.0,1.0};
+    Materials[2].Emit = {2.0,2.0,2.0};
     
     printf("Loading OBJ...\n");
     LoadOBJ("Teapotlight.obj", 
@@ -433,7 +420,7 @@ int main(int ArgCount, char** Args)
     Image.Pixels = Pixels;
     
     camera Camera = {};
-    Camera.Origin = V3f(0,3,4);
+    Camera.Origin = V3f(0,3.5,7);
     Camera.Rotation = V3f(0,0, 0);
     Camera.FOV = 50.0f;
     u32 Samples = 1;
@@ -448,7 +435,7 @@ int main(int ArgCount, char** Args)
     u32 TileCountY = (H + TileSize -1)/TileSize;
     
     thread_queue Queue = {};
-    Queue.Samples = 10;
+    Queue.Samples = 100;
     Queue.ThreadInfos = (thread_info*)malloc(TileCountY*TileCountX*sizeof(thread_info));
     
     clock_t Start = clock();
