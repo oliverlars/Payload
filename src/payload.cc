@@ -39,7 +39,7 @@ RayToRTCRay(ray *Ray)
 {
     return reinterpret_cast<RTCRay*>(Ray);
 }
-
+#if 0
 internal ray
 CameraRay(camera* Camera, s32 Width, s32 Height, f32 S, f32 T)
 {
@@ -47,8 +47,14 @@ CameraRay(camera* Camera, s32 Width, s32 Height, f32 S, f32 T)
     f32 HalfHeight = tanf(Theta/2.0f);
     f32 Aspect = (float)Width/(float)Height;
     f32 HalfWidth = HalfHeight*Aspect;
-    v3f Eye = Unit(Camera->Origin - Camera->LookAt);
-    v3f U = Unit(Cross(Camera->Up, Eye));
+    v3f Eye = V3f(0,0,1);
+    
+    RotateX(&Eye, 0);
+    RotateY(&Eye, 0);
+    RotateZ(&Eye, 0);
+    
+    
+    v3f U = Unit(Cross(V3f(0,1,0), Eye));
     v3f V = Cross(Eye, U);
     v3f BottomLeftCorner = Camera->Origin - HalfWidth*U - V*HalfHeight - Eye;
     v3f Horizontal = 2*U*HalfWidth;
@@ -56,14 +62,42 @@ CameraRay(camera* Camera, s32 Width, s32 Height, f32 S, f32 T)
     v3f Direction =BottomLeftCorner + Horizontal*S + Vertical*T - Camera->Origin;
     ray Result;
     
-    //RotateX(&Direction, 0.2);
-    //RotateY(&Direction, 0.2);
-    //RotateZ(&Direction, 5.0);
+    Result = Ray(Camera->Origin, Direction,0.0f, INF);
     
-    Result = Ray(Camera->Origin, Direction,
-                 0.0f, INF);
     return(Result);
+    
+    
+    
 }
+#endif
+
+internal ray
+CameraRay(camera* Camera, s32 Width, s32 Height, f32 S, f32 T)
+{
+    f32 Theta = Camera->FOV * Pi32 / 180.0f;
+    f32 Aspect = (f32)Width/(f32)Height;
+    v3f ZDir = {};
+    v3f XDir = Unit(Cross(ZDir,V3f(0,0,-1)));
+    v3f YDir = Unit(Cross(ZDir, XDir));
+    v3f Centre = Camera->Origin - ZDir;
+    f32 HalfH = tanf(Theta/2.0f);
+    f32 HalfW = HalfH*Aspect;
+    v3f ScreenPos = Centre + S*HalfW*XDir + T*HalfH*YDir;
+    
+    v4 Dir = V3ToV4(ScreenPos - Camera->Origin);
+    
+    RotateX(&Dir, 0);
+    RotateY(&Dir, 0);
+    RotateZ(&Dir, 0);
+    
+    Translate(&Dir, 0, 3, 4);
+    ray Result;
+    Result = Ray(Camera->Origin,V4ToV3(Dir), 0.0f, INF);
+    
+    return(Result);
+    
+}
+
 
 internal inline u32
 F32ToU32(f32 A)
@@ -285,14 +319,16 @@ RenderTile(thread_queue* Queue)
     
     for(s32 Y = YMin; Y < YMax; Y++)
     {
+        f32 ScreenY =-1.0 +2.0f*(((f32)Y + RandBilateral(&Info->RandomState))/(f32)Image.Height);
         for(s32 X = XMin; X < XMax; X++)
         {
+            f32 ScreenX =-1.0f+2.0f*((f32)X + RandBilateral(&Info->RandomState))/f32(Image.Width);
             f32 Contrib = 1.0f/f32(Queue->Samples);
             v3f Col = {};
             for(s32 S = 0; S < Queue->Samples; S++)
             {
-                ray Persp = CameraRay(&Camera, Image.Width, Image.Height, 
-                                      ((f32)X + RandBilateral(&Info->RandomState))/f32(Image.Width), ((f32)Y + RandBilateral(&Info->RandomState))/f32(Image.Height));
+                ray Persp = CameraRay(&Camera, Image.Width, 
+                                      Image.Height, ScreenX, ScreenY);
                 
                 u32 BounceCount;
                 v3f Result = {0.f,0.f,0.f};
@@ -397,9 +433,8 @@ int main(int ArgCount, char** Args)
     Image.Pixels = Pixels;
     
     camera Camera = {};
-    Camera.Up = V3f(0,1,0);
-    Camera.LookAt = V3f(0, 0, -3);
     Camera.Origin = V3f(0,3,4);
+    Camera.Rotation = V3f(0,0, 0);
     Camera.FOV = 50.0f;
     u32 Samples = 1;
     f32 Contrib = 1.0f/float(Samples);
@@ -444,9 +479,7 @@ int main(int ArgCount, char** Args)
         }
     }
     
-    for(u32 Cores = 1;
-        Cores < 12;
-        Cores++)
+    for(u32 Cores = 1; Cores < 12; Cores++)
     {
         DWORD ThreadID;
         HANDLE ThreadHandle = CreateThread(0,0,TileThread, &Queue, 0, &ThreadID);

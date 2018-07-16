@@ -36,6 +36,15 @@ union v3f
     f32 E[3];
 };
 
+union v4
+{
+    struct
+    {
+        f32 X,Y,Z,W;
+    };
+    f32 E[4];
+};
+
 union mat3
 {
     struct
@@ -47,6 +56,17 @@ union mat3
     f32 E[9];
 };
 
+union mat4
+{
+    struct
+    {
+        f32 M00, M01, M02, M03;
+        f32 M10, M11, M12, M13;
+        f32 M20, M21, M22, M23;
+        f32 M30, M31, M32, M33;
+    };
+    f32 E[16];
+};
 
 struct vertex
 {
@@ -126,8 +146,7 @@ struct RTC_ALIGN(16) ray
 
 struct camera
 {
-    v3f Up;
-    v3f LookAt;
+    v3f Rotation;
     v3f Origin;
     f32 FOV;
 };
