@@ -73,14 +73,14 @@ CameraRay(camera* Camera, s32 Width, s32 Height, f32 S, f32 T)
     v3f ScreenPos = Centre + S*HalfW*XDir + T*HalfH*YDir;
     
     v3f Dir = ScreenPos - V3f(0,1,0);
-    RotateX(&Dir, 1.25);
-    RotateY(&Dir, -0.349);
+    RotateX(&Dir, 1.57);
+    //RotateY(&Dir, Camera->Rotation.X);
     //RotateZ(&Dir, 0);
     ray Result;
     Result = Ray(Camera->Origin,Dir, 0.0f, INF);
     
     return(Result);
-    
+      
 }
 
 
@@ -103,7 +103,7 @@ GammaCorrect(f32 L)
     {
         L = 1.0f;
     }
-    
+   
     f32 S = L*12.92f;
     if(L > 0.0031308f)
     {
@@ -227,7 +227,7 @@ LoadOBJ(char* Filename,
         }
         else
         {
-            *MatPtr = 1;
+            *MatPtr = 0;
         }
 #endif
         MatPtr++;
@@ -316,7 +316,7 @@ RenderTile(thread_queue* Queue)
                 u32 BounceCount;
                 v3f Result = {0.f,0.f,0.f};
                 v3f Attenuation = V3f(1.,1.,1.);
-                v3f Sky = {0.5,0.5,0.5};
+                v3f Sky = {};
                 
                 for(BounceCount = 1; BounceCount < 10; BounceCount++)
                 {
@@ -389,7 +389,7 @@ int main(int ArgCount, char** Args)
     u32* MatIndices;
     
     Materials[0].Type = mat_type::DIFFUSE;
-    Materials[0].Colour = {1.0, 0.0, 0.0};
+    Materials[0].Colour = {1.0, 1.0, 1.0};
     
     Materials[1].Type = mat_type::GLOSSY;
     Materials[1].Colour = {0.0, 1.0, 0.0};
@@ -398,7 +398,7 @@ int main(int ArgCount, char** Args)
     Materials[2].Emit = {2.0,2.0,2.0};
     
     printf("Loading OBJ...\n");
-    LoadOBJ("Teapotlight.obj", 
+    LoadOBJ("buddhalight.obj", 
             &V, &F, &Mesh, &MatIndices);
     printf("Finished loading OBJ\n");
     rtcCommitGeometry(Mesh);
@@ -406,8 +406,8 @@ int main(int ArgCount, char** Args)
     rtcReleaseGeometry(Mesh);
     
     rtcCommitScene(Scene);
-    s32 W = 1920;
-    s32 H = 1080;
+    s32 W = 1080;
+    s32 H = 1280;
     v3f* Pixels = (v3f*)malloc(H*W*sizeof(v3f));
     v3f* PixelPtr = Pixels;
     image Image = {};
@@ -416,8 +416,8 @@ int main(int ArgCount, char** Args)
     Image.Pixels = Pixels;
     
     camera Camera = {};
-    Camera.Origin = V3f(0,3.5,7);
-    Camera.Rotation = V3f(0,0, 0);
+    Camera.Origin = V3f(0,4.5,12);
+    Camera.Rotation = V3f(0,0,0);
     Camera.FOV = 50.0f;
     u32 Samples = 1;
     f32 Contrib = 1.0f/float(Samples);
