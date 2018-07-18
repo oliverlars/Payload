@@ -184,30 +184,34 @@ LoadOBJ(char* Filename,
         u32** Materials)
 {
     HANDLE File = CreateFileA(Filename, GENERIC_READ,0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    
+    if(File == INVALID_HANDLE_VALUE)
+    {
+        goto FileError;
+    }
     u32 FileSize = GetFileSize(File, NULL);
     char* Buffer = reinterpret_cast<char*>(malloc(FileSize*sizeof(u8)));
     char* BufferPtr = Buffer;
     ReadFile(File, Buffer, FileSize, 0, 0);
+    if(Buffer == NULL)
+    {
+        goto BufferError;
+    }
     char Line[256];
     char Type[3];
     s64 NumberOfLines = 0;
     s64 NumberOfVertices = 0;
     s64 NumberOfFaces = 0;
     u32 CurrentSize = 0;
-    if(File != INVALID_HANDLE_VALUE)
+    while(GetLine(Line, sizeof(Line), &BufferPtr, FileSize, &CurrentSize))
     {
-        while(GetLine(Line, sizeof(Line), &BufferPtr, FileSize, &CurrentSize))
+        NumberOfLines++;
+        if(strstr(Line, "v ") != NULL)
         {
-            NumberOfLines++;
-            if(strstr(Line, "v ") != NULL)
-            {
-                NumberOfVertices++;
-            }
-            if(strstr(Line, "f ") != NULL)
-            {
-                NumberOfFaces++;
-            }
+            NumberOfVertices++;
+        }
+        if(strstr(Line, "f ") != NULL)
+        {
+            NumberOfFaces++;
         }
     }
     *Vertices =(vertex*)rtcSetNewGeometryBuffer(*Mesh,RTC_BUFFER_TYPE_VERTEX,0,RTC_FORMAT_FLOAT3,sizeof(vertex),NumberOfVertices);
@@ -262,7 +266,10 @@ LoadOBJ(char* Filename,
             *FacePtr++ = Tri;
         }
     }
+BufferError:    
     free(Buffer);
+FileError:
+    CloseHandle(File);
 }
 
 internal u64
