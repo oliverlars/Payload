@@ -9,6 +9,8 @@
 #include <inttypes.h>
 #include <math.h>
 #include <windows.h>
+#include <tchar.h>
+#include <gl/gl.h>
 #include <float.h>
 #include <string.h>
 #include "payload.h"
@@ -80,7 +82,7 @@ CameraRay(camera* Camera, s32 Width, s32 Height, f32 S, f32 T)
     Result = Ray(Camera->Origin,Dir, 0.0f, INF);
     
     return(Result);
-      
+    
 }
 
 
@@ -103,7 +105,7 @@ GammaCorrect(f32 L)
     {
         L = 1.0f;
     }
-   
+    
     f32 S = L*12.92f;
     if(L > 0.0031308f)
     {
@@ -266,9 +268,9 @@ LoadOBJ(char* Filename,
             *FacePtr++ = Tri;
         }
     }
-BufferError:    
+    BufferError:    
     free(Buffer);
-FileError:
+    FileError:
     CloseHandle(File);
 }
 
@@ -307,7 +309,7 @@ RenderTile(thread_queue* Queue)
     
     for(s32 Y = YMin; Y < YMax; Y++)
     {
-
+        
         for(s32 X = XMin; X < XMax; X++)
         {
             
@@ -381,7 +383,10 @@ TileThread(void* lpParameter)
     return(0);
 }
 
-int main(int ArgCount, char** Args)
+u32* GLBuffer;
+
+#if 1
+int Render()
 {
     char *rtconfig = "verbose=0,threads=12";
     
@@ -413,8 +418,8 @@ int main(int ArgCount, char** Args)
     rtcReleaseGeometry(Mesh);
     
     rtcCommitScene(Scene);
-    s32 W = 1080;
-    s32 H = 1280;
+    s32 W = 1280;
+    s32 H = 720;
     v3f* Pixels = (v3f*)malloc(H*W*sizeof(v3f));
     v3f* PixelPtr = Pixels;
     image Image = {};
@@ -426,7 +431,7 @@ int main(int ArgCount, char** Args)
     Camera.Origin = V3f(0,4.5,12);
     Camera.Rotation = V3f(0,0,0);
     Camera.FOV = 50.0f;
-    u32 Samples = 1;
+    u32 Samples = 10;
     f32 Contrib = 1.0f/float(Samples);
     u32 CountSamples = 1;
     
@@ -438,7 +443,7 @@ int main(int ArgCount, char** Args)
     u32 TileCountY = (H + TileSize -1)/TileSize;
     
     thread_queue Queue = {};
-    Queue.Samples = 100;
+    Queue.Samples = 10;
     Queue.ThreadInfos = (thread_info*)malloc(TileCountY*TileCountX*sizeof(thread_info));
     
     clock_t Start = clock();
@@ -507,6 +512,7 @@ int main(int ArgCount, char** Args)
     Header.ColorsUsed = 0;
     Header.ColorsImportant = 0;
     
+    u32* PackedPixels = (u32*)malloc(W*H*sizeof(u32));
     FILE *Output = fopen("out.bmp", "wb");
     if(Output)
     {
@@ -516,7 +522,8 @@ int main(int ArgCount, char** Args)
         {
             for(int X = 0; X < W; X++)
             {
-                u32 P = PackV3(*PixelPtr++);
+                PackedPixels[X + Y*W] = PackV3(*PixelPtr++);
+                u32 P = PackedPixels[X + Y*W];
                 fwrite(&P, 1, sizeof(P), Output);
             }
         }
@@ -527,6 +534,152 @@ int main(int ArgCount, char** Args)
     {
         fclose(Output);
     }
+    GLBuffer = PackedPixels;
     
     return(0);
+}
+#endif 
+
+internal b32x
+InitOpenGL(HWND Window)
+{
+    HDC WindowDC = GetDC(Window);
+    
+    PIXELFORMATDESCRIPTOR PixelFormat = {};
+    PixelFormat.nSize = sizeof(PixelFormat);
+    PixelFormat.nVersion = 1;
+    PixelFormat.dwFlags = PFD_SUPPORT_OPENGL | PFD_DRAW_TO_WINDOW|PFD_DOUBLEBUFFER;
+    PixelFormat.cColorBits = 32;
+    PixelFormat.cAlphaBits = 8;
+    PixelFormat.iLayerType = PFD_MAIN_PLANE;
+    
+    s32 FormatIndex = ChoosePixelFormat(WindowDC, &PixelFormat);
+    PIXELFORMATDESCRIPTOR SuggestedPixelFormat;
+    DescribePixelFormat(WindowDC, FormatIndex, sizeof(SuggestedPixelFormat), &SuggestedPixelFormat);
+    SetPixelFormat(WindowDC, FormatIndex, &SuggestedPixelFormat);
+    
+    HGLRC OpenGLRC = wglCreateContext(WindowDC);
+    
+    if(wglMakeCurrent(WindowDC, OpenGLRC))
+    {
+        return true;
+    }
+    else
+    {
+        MessageBox(0, _T("Failed to initialise OpenGL"), _T("Payload IPR"), 0);
+        return false;
+    }
+    ReleaseDC(Window, WindowDC);
+}
+
+internal void
+Display()
+{
+    f32 P = 1.f;
+    glBegin(GL_TRIANGLES);
+    glTexCoord2f(0,0);
+    glVertex2f(-P, -P);
+    
+    glTexCoord2f(1,0);
+    glVertex2f(P, -P);
+    
+    glTexCoord2f(1,1);
+    glVertex2f(P, P);
+    
+    
+    glTexCoord2f(0,0);
+    glVertex2f(-P, -P);
+    
+    glTexCoord2f(0,1);
+    glVertex2f(-P, P);
+    
+    glTexCoord2f(1,1);
+    glVertex2f(P, P);
+    glEnd();
+}
+
+LRESULT CALLBACK WinProc(HWND Hwnd, UINT Msg, WPARAM WParam, LPARAM LParam)
+{
+    PAINTSTRUCT Ps;  
+    HDC WindowDC = GetDC(Hwnd);  
+    GLuint TextureHandle;
+    switch (Msg)  
+    {  
+        case WM_WINDOWPOSCHANGING:
+        break;
+        case WM_PAINT:  
+        glViewport(0,0,1280, 720);
+        
+        glGenTextures(1, &TextureHandle);
+        glBindTexture(GL_TEXTURE_2D, TextureHandle);
+        glTexImage2D(GL_TEXTURE_2D,0, GL_RGBA8, 1280, 720,0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, GLBuffer);
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+        
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        
+        glEnable(GL_TEXTURE_2D);
+        glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        Display();
+        
+        SwapBuffers(WindowDC);
+        glDeleteTextures(1, &TextureHandle);
+        break;  
+        case WM_DESTROY:  
+        PostQuitMessage(0);  
+        break;  
+        case WM_ERASEBKGND:
+        return 1;
+        default:  
+        return DefWindowProc(Hwnd, Msg, WParam, LParam);  
+        break;  
+    }  
+    
+    return 0;  
+}
+
+int CALLBACK
+WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
+{
+    Render();
+    WNDCLASSEX WinClass = {};
+    WinClass.cbSize = sizeof(WNDCLASSEX);
+    WinClass.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW;
+    WinClass.hbrBackground = (HBRUSH)(COLOR_BACKGROUND);
+    WinClass.lpfnWndProc = WinProc;
+    WinClass.hInstance = Instance;
+    WinClass.lpszClassName = _T("Payload");
+    
+    if(!RegisterClassEx(&WinClass))
+    {
+        MessageBox(0, _T("Failed to register class"), _T("Payload IPR"), 0);
+        return 1;
+    }
+    HWND HWnd = CreateWindow("Payload", "Payload IPR", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                             1280, 720, 0, 0, Instance, 0);
+    
+    if(!HWnd)
+    {
+        MessageBox(0, _T("Failed to create Window"), _T("Payload IPR"), 0);
+        return 1;
+    }
+    if(!InitOpenGL(HWnd))
+    {
+        return 1;
+    }
+    ShowWindow(HWnd,CmdShow);  
+    UpdateWindow(HWnd);  
+    MSG Msg;  
+    while (GetMessage(&Msg, NULL, 0, 0))  
+    {  
+        TranslateMessage(&Msg);  
+        DispatchMessage(&Msg);  
+    }  
+    
+    return 0;
 }

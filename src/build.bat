@@ -14,7 +14,7 @@
 
 @set LinkFlags= ^
 	-machine:x64 ^
-	-subsystem:console
+	-subsystem:windows
 
 @set LinkLibs= ^
 	/libpath:"%VSBasePath%\lib\x64" ^
@@ -22,7 +22,7 @@
 	/libpath:"%WinSDKPath%\Lib\%WinSDKVersion%\um\x64" ^
 	/libpath:"C:\Program Files\LLVM\lib" ^
 	/libpath:"..\lib\embree3\lib" ^
-	libcmt.lib User32.lib embree3.lib
+	libcmt.lib User32.lib embree3.lib opengl32.lib gdi32.lib
 
 
 @ctime -begin payload.ctm
