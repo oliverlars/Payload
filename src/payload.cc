@@ -114,13 +114,22 @@ GammaCorrect(f32 L)
     
     return(S);
 }
-
+internal v3f
+GammaCorrectV3(v3f L)
+{
+    v3f Result;
+    Result.X = GammaCorrect(L.X);
+    Result.Y = GammaCorrect(L.Y);
+    Result.Z = GammaCorrect(L.Z);
+    return(Result);
+}
 internal inline u32
 PackV3(v3f F)
 {
-    f32 R = 255.f*GammaCorrect(F.X);
-    f32 G = 255.f*GammaCorrect(F.Y);
-    f32 B = 255.f*GammaCorrect(F.Z);
+    F = ClampV3(F, 0.0f, 1.0f);
+    f32 R = 255.f*F.X;
+    f32 G = 255.f*F.Y;
+    f32 B = 255.f*F.Z;
     f32 A = 255.0f;
     
     u32 Result = ((F32ToU32(A) << 24) |
@@ -135,9 +144,10 @@ UnpackV3(u32 A)
 {
     colour* Col = reinterpret_cast<colour*>(&A);
     v3f Result;
-    Result.X = f32(Col->R)/255.99f;
-    Result.Y = f32(Col->G)/255.99f;
-    Result.Z = f32(Col->B)/255.99f;
+    Result.X = f32(Col->R)/255.f;
+    Result.Y = f32(Col->G)/255.f;
+    Result.Z = f32(Col->B)/255.f;
+    Result = ClampV3(Result, 0.0f, 1.0f);
     return(Result);
 }
 
@@ -383,11 +393,18 @@ TileThread(void* lpParameter)
     return(0);
 }
 
+internal void
+DispatchThreads(thread_queue* Queue)
+{
+    
+}
+
 u32* GLBuffer;
 
 #if 1
 int Render()
 {
+    
     char *rtconfig = "verbose=0,threads=12";
     
     RTCDevice Device = rtcNewDevice(rtconfig);
@@ -539,7 +556,7 @@ int Render()
     return(0);
 }
 #endif 
-
+#define GL_FRAMEBUFFER_SRGB               0x8DB9
 internal b32x
 InitOpenGL(HWND Window)
 {
@@ -569,6 +586,7 @@ InitOpenGL(HWND Window)
         MessageBox(0, _T("Failed to initialise OpenGL"), _T("Payload IPR"), 0);
         return false;
     }
+    
     ReleaseDC(Window, WindowDC);
 }
 
@@ -603,6 +621,7 @@ LRESULT CALLBACK WinProc(HWND Hwnd, UINT Msg, WPARAM WParam, LPARAM LParam)
     PAINTSTRUCT Ps;  
     HDC WindowDC = GetDC(Hwnd);  
     GLuint TextureHandle;
+    glEnable(GL_FRAMEBUFFER_SRGB);
     switch (Msg)  
     {  
         case WM_WINDOWPOSCHANGING:
@@ -646,7 +665,96 @@ LRESULT CALLBACK WinProc(HWND Hwnd, UINT Msg, WPARAM WParam, LPARAM LParam)
 int CALLBACK
 WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
 {
-    Render();
+    
+    char *rtconfig = "verbose=0,threads=8";
+    
+    RTCDevice Device = rtcNewDevice(rtconfig);
+    RTCScene Scene = rtcNewScene(Device);
+    rtcSetSceneBuildQuality(Scene, RTC_BUILD_QUALITY_HIGH);
+    RTCGeometry Mesh = rtcNewGeometry (Device, RTC_GEOMETRY_TYPE_TRIANGLE);
+    
+    vertex* V = nullptr;
+    face* F = nullptr;
+    material Materials[3] = {};
+    u32* MatIndices;
+    
+    Materials[0].Type = mat_type::DIFFUSE;
+    Materials[0].Colour = {1.0, 1.0, 1.0};
+    
+    Materials[1].Type = mat_type::GLOSSY;
+    Materials[1].Colour = {0.0, 1.0, 0.0};
+    
+    Materials[2].Type = mat_type::DIFFUSE;
+    Materials[2].Emit = {2.0,2.0,2.0};
+    
+    printf("Loading OBJ...\n");
+    LoadOBJ("buddhalight.obj", 
+            &V, &F, &Mesh, &MatIndices);
+    printf("Finished loading OBJ\n");
+    rtcCommitGeometry(Mesh);
+    u32 geomID = rtcAttachGeometry(Scene,Mesh);
+    rtcReleaseGeometry(Mesh);
+    
+    rtcCommitScene(Scene);
+    s32 W = 1280;
+    s32 H = 720;
+    v3f* Pixels = (v3f*)malloc(H*W*sizeof(v3f));
+    v3f* PixelPtr = Pixels;
+    image Image = {};
+    Image.Width = W;
+    Image.Height = H;
+    Image.Pixels = Pixels;
+    
+    camera Camera = {};
+    Camera.Origin = V3f(0,4.5,12);
+    Camera.Rotation = V3f(0,0,0);
+    Camera.FOV = 50.0f;
+    u32 Samples = 10;
+    f32 Contrib = 1.0f/float(Samples);
+    u32 CountSamples = 1;
+    
+    
+    v3f Col = {0.0f, 0.0f, 0.0f};
+    
+    u32 TileSize = 64;
+    u32 TileCountX = (W + TileSize -1)/TileSize;
+    u32 TileCountY = (H + TileSize -1)/TileSize;
+    
+    
+    thread_queue Queue = {};
+    Queue.Samples = 1;
+    Queue.ThreadInfos = (thread_info*)malloc(TileCountY*TileCountX*sizeof(thread_info));
+    
+    clock_t Start = clock();
+    for(u32 TileY = 0; TileY < TileCountY; TileY++)
+    {
+        u32 YMin = TileY*TileSize;
+        u32 YMax = YMin + TileSize;
+        YMax = YMax > H ? H : YMax;
+        
+        for(u32 TileX = 0; TileX < TileCountX; TileX++)
+        {
+            u32 XMin = TileX*TileSize;
+            u32 XMax = XMin + TileSize;
+            XMax = XMax > W ? W : XMax;
+            
+            thread_info* ThreadInfo = Queue.ThreadInfos + Queue.WorkCount++;
+            assert(Queue.WorkCount <= TileCountX*TileCountY);
+            ThreadInfo->Scene = &Scene;
+            ThreadInfo->Camera = Camera;
+            ThreadInfo->Materials = Materials;
+            ThreadInfo->MatIndices = MatIndices;
+            ThreadInfo->Image = Image;
+            ThreadInfo->XMin = XMin;
+            ThreadInfo->YMin = YMin;
+            ThreadInfo->XMax = XMax;
+            ThreadInfo->YMax = YMax;
+            ThreadInfo->RandomState = 25;
+        }
+    }
+    
+    u32* PackedPixels = (u32*)malloc(W*H*sizeof(u32));
+    
     WNDCLASSEX WinClass = {};
     WinClass.cbSize = sizeof(WNDCLASSEX);
     WinClass.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW;
@@ -668,18 +776,56 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
         MessageBox(0, _T("Failed to create Window"), _T("Payload IPR"), 0);
         return 1;
     }
+    
     if(!InitOpenGL(HWnd))
     {
         return 1;
     }
+    
     ShowWindow(HWnd,CmdShow);  
     UpdateWindow(HWnd);  
     MSG Msg;  
+    GLBuffer = PackedPixels;
+    
+    //DispatchThreads(&Queue);
+    
+    for(u32 Cores = 1; Cores < 8; Cores++)
+    {
+        DWORD ThreadID;
+        HANDLE ThreadHandle = CreateThread(0,0,TileThread, &Queue, 0, &ThreadID);
+        CloseHandle(ThreadHandle);
+    }
+    u32 TotalSamples = 0;
     while (GetMessage(&Msg, NULL, 0, 0))  
     {  
-        TranslateMessage(&Msg);  
-        DispatchMessage(&Msg);  
-    }  
-    
+        if(Queue.UsedTiles == TileCountY*TileCountX)
+        {
+            TotalSamples++;
+            for(int Y = 0; Y < H; Y++)
+            {
+                for(int X = 0; X < W; X++)
+                {
+                    v3f CurrentColour = UnpackV3(PackedPixels[X+Y*W]);
+                    v3f NewColour = CurrentColour + (PixelPtr[X+Y*W] - CurrentColour)/TotalSamples;
+                    PackedPixels[X + Y*W] = PackV3(NewColour);
+                    //PackedPixels[X+Y*W] = PackV3(PixelPtr[X+Y*W]);
+                }
+                
+            }
+            
+            Queue.UsedTiles = 0;
+            Queue.NextThreadIndex = 0;
+            for(u32 Cores = 1; Cores < 8; Cores++)
+            {
+                DWORD ThreadID;
+                HANDLE ThreadHandle = CreateThread(0,0,TileThread, &Queue, 0, &ThreadID);
+                CloseHandle(ThreadHandle);
+            }
+            
+        }
+        TranslateMessage(&Msg);
+        DispatchMessage(&Msg);
+        
+    }
     return 0;
 }

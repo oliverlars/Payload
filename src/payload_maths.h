@@ -134,6 +134,16 @@ Clamp(f32 A, f32 Min, f32 Max)
     }
     return(Result);
 }
+internal inline v3f
+ClampV3(v3f A, f32 Min, f32 Max)
+{
+    v3f Result;
+    Result.X = Clamp(A.X, Min, Max);
+    Result.Y = Clamp(A.Y, Min, Max);
+    Result.Z = Clamp(A.Z, Min, Max);
+    return(Result);
+}
+
 
 internal v4
 V3ToV4(v3f A)
