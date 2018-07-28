@@ -393,12 +393,6 @@ TileThread(void* lpParameter)
     return(0);
 }
 
-internal void
-DispatchThreads(thread_queue* Queue)
-{
-    
-}
-
 u32* GLBuffer;
 
 #if 1
@@ -487,7 +481,7 @@ int Render()
             ThreadInfo->YMin = YMin;
             ThreadInfo->XMax = XMax;
             ThreadInfo->YMax = YMax;
-            ThreadInfo->RandomState = 25;
+            //ThreadInfo->RandomState = 25;
         }
     }
     
@@ -593,6 +587,7 @@ InitOpenGL(HWND Window)
 internal void
 Display()
 {
+    //Move to modern OpenGL ASAP!
     f32 P = 1.f;
     glBegin(GL_TRIANGLES);
     glTexCoord2f(0,0);
@@ -634,12 +629,12 @@ LRESULT CALLBACK WinProc(HWND Hwnd, UINT Msg, WPARAM WParam, LPARAM LParam)
         glTexImage2D(GL_TEXTURE_2D,0, GL_RGBA8, 1280, 720,0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, GLBuffer);
         glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
         
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         
         glEnable(GL_TEXTURE_2D);
-        glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         
         glMatrixMode(GL_PROJECTION);
@@ -749,7 +744,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
             ThreadInfo->YMin = YMin;
             ThreadInfo->XMax = XMax;
             ThreadInfo->YMax = YMax;
-            ThreadInfo->RandomState = 25;
+            ThreadInfo->RandomState = 1;
         }
     }
     
@@ -788,14 +783,13 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
     GLBuffer = PackedPixels;
     
     //DispatchThreads(&Queue);
-    
     for(u32 Cores = 1; Cores < 8; Cores++)
     {
         DWORD ThreadID;
         HANDLE ThreadHandle = CreateThread(0,0,TileThread, &Queue, 0, &ThreadID);
         CloseHandle(ThreadHandle);
     }
-    u32 TotalSamples = 0;
+    u32 TotalSamples = 1;
     while (GetMessage(&Msg, NULL, 0, 0))  
     {  
         if(Queue.UsedTiles == TileCountY*TileCountX)

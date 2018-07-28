@@ -27,7 +27,7 @@
 
 @ctime -begin payload.ctm
 @echo Compiling...
-@clang++ -g -gcodeview payload.cc -stdlib=libc++ -o ..\build\payload.o -c %CompilerFlags%
+@clang++  -O3 payload.cc -stdlib=libc++ -o ..\build\payload.o -c %CompilerFlags%
 
 @link /debug "..\build\payload.o" -out:"%OUT%" %LinkFlags% %LinkLibs%
 
