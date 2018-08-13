@@ -641,7 +641,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
     GLBuffer = DisplayPixels;
     
     //DispatchThreads(&Queue);
-    for(u32 Cores = 1; Cores < 8; Cores++)
+    for(u32 Cores = 1; Cores < 24; Cores++)
     {
         DWORD ThreadID;
         HANDLE ThreadHandle = CreateThread(0,0,TileThread, &Queue, 0, &ThreadID);
@@ -652,15 +652,12 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
     {  
         if(Queue.UsedTiles == TileCountY*TileCountX)
         {
+            printf("\rSample %d", Queue.TotalSamples);
             Queue.TotalSamples++;
             for(int Y = 0; Y < H; Y++)
             {
                 for(int X = 0; X < W; X++)
                 {
-                    //v3f CurrentColour = UnpackV3(PackedPixels[X+Y*W]);
-                    //v3f NewColour = CurrentColour + (PixelPtr[X+Y*W] - CurrentColour)/(f32)TotalSamples;
-                    //v3f NewColour = (NewColour*(TotalSamples-1) + CurrentColour)/(f32)TotalSamples;
-                    //PackedPixels[X + Y*W] = PackV3(NewColour);
                     DisplayPixels[X+Y*W] = PackV3(Pixels[X+Y*W]);
                 }
                 

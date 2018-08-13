@@ -27,8 +27,8 @@
 
 @ctime -begin payload.ctm
 @echo Compiling...
-@clang++  payload.cc -stdlib=libc++ -o ..\build\payload.o -c %CompilerFlags%
-::@clang++ stb_image.h -stdlib=libc++ -o "stb_image.o" -c %CompilerFlags%
+@clang++ -O3 payload.cc -stdlib=libc++ -o ..\build\payload.o -c %CompilerFlags%
+:@clang++ stb_image.h -stdlib=libc++ -o "stb_image.o" -c %CompilerFlags%
 @link /debug "..\build\payload.o" -out:"%OUT%" %LinkFlags% %LinkLibs%
 
 @echo Done
