@@ -9,14 +9,18 @@
 #include <inttypes.h>
 #include <math.h>
 #include <windows.h>
+#include <io.h>
 #include <tchar.h>
 #include <gl/gl.h>
 #include <float.h>
 #include <string.h>
 #include "payload.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 #include "payload_maths.h"
 #include "payload_transforms.cc"
 #include "payload_brdf.cc"
+#include "payload_texture.cc"
 
 internal inline RTCRayHit* 
 RayToRTCRayHit(ray *Ray)
@@ -29,37 +33,6 @@ RayToRTCRay(ray *Ray)
 {
     return reinterpret_cast<RTCRay*>(Ray);
 }
-#if 0
-internal ray
-CameraRay(camera* Camera, s32 Width, s32 Height, f32 S, f32 T)
-{
-    f32 Theta = Camera->FOV * Pi32 / 180.0f;
-    f32 HalfHeight = tanf(Theta/2.0f);
-    f32 Aspect = (float)Width/(float)Height;
-    f32 HalfWidth = HalfHeight*Aspect;
-    v3f Eye = V3f(0,0,1);
-    
-    RotateX(&Eye, 0);
-    RotateY(&Eye, 0);
-    RotateZ(&Eye, 0);
-    
-    
-    v3f U = Unit(Cross(V3f(0,1,0), Eye));
-    v3f V = Cross(Eye, U);
-    v3f BottomLeftCorner = Camera->Origin - HalfWidth*U - V*HalfHeight - Eye;
-    v3f Horizontal = 2*U*HalfWidth;
-    v3f Vertical = 2*V*HalfHeight;
-    v3f Direction =BottomLeftCorner + Horizontal*S + Vertical*T - Camera->Origin;
-    ray Result;
-    
-    Result = Ray(Camera->Origin, Direction,0.0f, INF);
-    
-    return(Result);
-    
-    
-    
-}
-#endif
 
 internal ray
 CameraRay(camera* Camera, s32 Width, s32 Height, f32 S, f32 T)
@@ -80,9 +53,7 @@ CameraRay(camera* Camera, s32 Width, s32 Height, f32 S, f32 T)
     //RotateZ(&Dir, 0);
     ray Result;
     Result = Ray(Camera->Origin,Dir, 0.0f, INF);
-    
     return(Result);
-    
 }
 
 
@@ -93,36 +64,6 @@ F32ToU32(f32 A)
     return(Result);
 }
 
-internal f32
-GammaCorrect(f32 L)
-{
-    if(L < 0.0f)
-    {
-        L = 0.0f;
-    }
-    
-    if(L > 1.0f)
-    {
-        L = 1.0f;
-    }
-    
-    f32 S = L*12.92f;
-    if(L > 0.0031308f)
-    {
-        S = 1.055f*pow(L, 1.0f/2.4f) - 0.055f;
-    }
-    
-    return(S);
-}
-internal v3f
-GammaCorrectV3(v3f L)
-{
-    v3f Result;
-    Result.X = GammaCorrect(L.X);
-    Result.Y = GammaCorrect(L.Y);
-    Result.Z = GammaCorrect(L.Z);
-    return(Result);
-}
 internal inline u32
 PackV3(v3f F)
 {
@@ -193,7 +134,9 @@ LoadOBJ(char* Filename,
         vertex** Vertices,
         face** Faces,
         RTCGeometry *Mesh,
-        u32** Materials)
+        u32** Materials,
+        v2** TexCoords,
+        vertex_attribs** Attribs)
 {
     HANDLE File = CreateFileA(Filename, GENERIC_READ,0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if(File == INVALID_HANDLE_VALUE)
@@ -209,10 +152,11 @@ LoadOBJ(char* Filename,
         goto BufferError;
     }
     char Line[256];
-    char Type[3];
+    char Type[4];
     s64 NumberOfLines = 0;
     s64 NumberOfVertices = 0;
     s64 NumberOfFaces = 0;
+    s64 NumberOfTexCoords = 0;
     u32 CurrentSize = 0;
     while(GetLine(Line, sizeof(Line), &BufferPtr, FileSize, &CurrentSize))
     {
@@ -225,6 +169,10 @@ LoadOBJ(char* Filename,
         {
             NumberOfFaces++;
         }
+        if(strstr(Line, "vt ") != NULL)
+        {
+            NumberOfTexCoords++;
+        }
     }
     *Vertices =(vertex*)rtcSetNewGeometryBuffer(*Mesh,RTC_BUFFER_TYPE_VERTEX,0,RTC_FORMAT_FLOAT3,sizeof(vertex),NumberOfVertices);
     
@@ -233,6 +181,11 @@ LoadOBJ(char* Filename,
     
     *Materials = (u32*)malloc(NumberOfFaces*sizeof(u32));
     
+    *TexCoords = (v2*)malloc(NumberOfTexCoords*sizeof(v2));
+    
+    *Attribs = (vertex_attribs*)malloc(NumberOfFaces*sizeof(vertex_attribs));
+    
+    vertex_attribs* AttribPtr = *Attribs;
     u32* MatPtr = *Materials;
     for(u32 I = 0; I < NumberOfFaces; I++)
     {
@@ -249,6 +202,7 @@ LoadOBJ(char* Filename,
         MatPtr++;
     }
     face* FacePtr = *Faces;
+    v2* TexCoordPtr = *TexCoords;
     BufferPtr = Buffer;
     CurrentSize = 0;
     while(GetLine(Line, sizeof(Line), &BufferPtr, FileSize, &CurrentSize))
@@ -263,19 +217,35 @@ LoadOBJ(char* Filename,
             Vert.Z = Z;
             *VerticePtr++ = Vert;
         }
-        
-        if(strstr(Line, "f ") != NULL)
+        else if(strstr(Line, "f ") != NULL)
         {
             face Tri = {};
             u32 V0 = 0; u32 V1 = 0; u32 V2 = 0;
-            u32 A,B,C,D,E,F;
+            u32 T0, T1, T2;
+            u32 B,D,F;
+            
+            vertex_attribs Attrib = {};
             sscanf(Line, 
                    "%s %u/%u/%u %u/%u/%u %u/%u/%u",
-                   Type, &V0, &A, &B, &V1, &C, &D, &V2, &E, &F);
+                   Type, 
+                   &V0, &T0, &B, 
+                   &V1, &T1, &D,
+                   &V2, &T2, &F);
+            
             Tri.V0 = V0-1;
             Tri.V1 = V1-1;
             Tri.V2 = V2-1;
+            Attrib.T0 = T0-1;
+            Attrib.T1 = T1-1;
+            Attrib.T2 = T2-1;
             *FacePtr++ = Tri;
+            *AttribPtr++ = Attrib;
+        }
+        else if(strstr(Line, "vt ") != NULL)
+        {
+            v2 Coord = {};
+            sscanf(Line, "%s %f %f", Type, &Coord.X, &Coord.Y);
+            *TexCoordPtr++ = Coord;
         }
     }
     BufferError:    
@@ -311,12 +281,13 @@ RenderTile(thread_queue* Queue)
     u32 YMin = Info->YMin;
     u32 XMax = Info->XMax;
     u32 YMax = Info->YMax;
+    vertex_attribs* Attribs = Info->Attribs;
     
     camera Camera = Info->Camera;
     RTCScene* Scene = Info->Scene;
     material* Materials = Info->Materials;
     u32* MatIndices = Info->MatIndices;
-    
+    v2* TexCoords = Info->TexCoords;
     for(s32 Y = YMin; Y < YMax; Y++)
     {
         
@@ -346,7 +317,15 @@ RenderTile(thread_queue* Queue)
                         u32 MatIndex = MatIndices[Persp.PrimID];
                         
                         material Material = Materials[MatIndex];
-                        v3f Albedo = Material.Colour;
+                        v2 CoordsA = TexCoords[Attribs[Persp.PrimID].T0];
+                        v2 CoordsB = TexCoords[Attribs[Persp.PrimID].T1];
+                        v2 CoordsC = TexCoords[Attribs[Persp.PrimID].T2];
+                        v2 Coords = CoordsA*Persp.U + CoordsB*Persp.V + CoordsC*(1.0-Persp.U-Persp.V);
+                        //printf("%f %f\n", Coords.U, Coords.V);
+                        //Coords.U = 1.0 - Coords.U;
+                        Coords.V = 1.0 - Coords.V;
+                        
+                        v3f Albedo = SampleTexture(Material.Texture, Coords);
                         v3f Emit =  Material.Emit;
                         Result = Result + Hadamard(Emit, Attenuation);
                         if(LengthSqrd(Emit) > 0.0f)
@@ -357,7 +336,6 @@ RenderTile(thread_queue* Queue)
                         }
                         Attenuation = Hadamard(Attenuation, Albedo);
                         
-                        
                         switch(Material.Type)
                         {
                             case DIFFUSE:
@@ -367,7 +345,6 @@ RenderTile(thread_queue* Queue)
                             GlossyBRDF(&Persp, &Info->RandomState);
                             break;
                         }
-                        
                     }
                     else
                     {
@@ -377,7 +354,10 @@ RenderTile(thread_queue* Queue)
                     }
                     
                 }
-                Image.Pixels[X + Y*Image.Width] = Contrib*Col;
+                u32 Index = X+Y*Image.Width;
+                v3f CurrentColour = Image.Pixels[Index];
+                v3f NewColour = CurrentColour + (Contrib*Col - CurrentColour)/(f32)Queue->TotalSamples;
+                Image.Pixels[Index] = NewColour;
             }
         }
     }
@@ -395,162 +375,8 @@ TileThread(void* lpParameter)
 
 u32* GLBuffer;
 
-#if 1
-int Render()
-{
-    
-    char *rtconfig = "verbose=0,threads=12";
-    
-    RTCDevice Device = rtcNewDevice(rtconfig);
-    RTCScene Scene = rtcNewScene(Device);
-    rtcSetSceneBuildQuality(Scene, RTC_BUILD_QUALITY_HIGH);
-    RTCGeometry Mesh = rtcNewGeometry (Device, RTC_GEOMETRY_TYPE_TRIANGLE);
-    
-    vertex* V = nullptr;
-    face* F = nullptr;
-    material Materials[3] = {};
-    u32* MatIndices;
-    
-    Materials[0].Type = mat_type::DIFFUSE;
-    Materials[0].Colour = {1.0, 1.0, 1.0};
-    
-    Materials[1].Type = mat_type::GLOSSY;
-    Materials[1].Colour = {0.0, 1.0, 0.0};
-    
-    Materials[2].Type = mat_type::DIFFUSE;
-    Materials[2].Emit = {2.0,2.0,2.0};
-    
-    printf("Loading OBJ...\n");
-    LoadOBJ("buddhalight.obj", 
-            &V, &F, &Mesh, &MatIndices);
-    printf("Finished loading OBJ\n");
-    rtcCommitGeometry(Mesh);
-    u32 geomID = rtcAttachGeometry(Scene,Mesh);
-    rtcReleaseGeometry(Mesh);
-    
-    rtcCommitScene(Scene);
-    s32 W = 1280;
-    s32 H = 720;
-    v3f* Pixels = (v3f*)malloc(H*W*sizeof(v3f));
-    v3f* PixelPtr = Pixels;
-    image Image = {};
-    Image.Width = W;
-    Image.Height = H;
-    Image.Pixels = Pixels;
-    
-    camera Camera = {};
-    Camera.Origin = V3f(0,4.5,12);
-    Camera.Rotation = V3f(0,0,0);
-    Camera.FOV = 50.0f;
-    u32 Samples = 10;
-    f32 Contrib = 1.0f/float(Samples);
-    u32 CountSamples = 1;
-    
-    
-    v3f Col = {0.0f, 0.0f, 0.0f};
-    
-    u32 TileSize = 64;
-    u32 TileCountX = (W + TileSize -1)/TileSize;
-    u32 TileCountY = (H + TileSize -1)/TileSize;
-    
-    thread_queue Queue = {};
-    Queue.Samples = 10;
-    Queue.ThreadInfos = (thread_info*)malloc(TileCountY*TileCountX*sizeof(thread_info));
-    
-    clock_t Start = clock();
-    for(u32 TileY = 0; TileY < TileCountY; TileY++)
-    {
-        u32 YMin = TileY*TileSize;
-        u32 YMax = YMin + TileSize;
-        YMax = YMax > H ? H : YMax;
-        
-        for(u32 TileX = 0; TileX < TileCountX; TileX++)
-        {
-            u32 XMin = TileX*TileSize;
-            u32 XMax = XMin + TileSize;
-            XMax = XMax > W ? W : XMax;
-            
-            thread_info* ThreadInfo = Queue.ThreadInfos + Queue.WorkCount++;
-            assert(Queue.WorkCount <= TileCountX*TileCountY);
-            ThreadInfo->Scene = &Scene;
-            ThreadInfo->Camera = Camera;
-            ThreadInfo->Materials = Materials;
-            ThreadInfo->MatIndices = MatIndices;
-            ThreadInfo->Image = Image;
-            ThreadInfo->XMin = XMin;
-            ThreadInfo->YMin = YMin;
-            ThreadInfo->XMax = XMax;
-            ThreadInfo->YMax = YMax;
-            //ThreadInfo->RandomState = 25;
-        }
-    }
-    
-    for(u32 Cores = 1; Cores < 12; Cores++)
-    {
-        DWORD ThreadID;
-        HANDLE ThreadHandle = CreateThread(0,0,TileThread, &Queue, 0, &ThreadID);
-        CloseHandle(ThreadHandle);
-    }
-    
-    while(Queue.UsedTiles < TileCountX*TileCountY)
-    {
-        if(RenderTile(&Queue))
-        {
-            fprintf(stderr, "\rRendering %d%%... ",
-                    100*(u32)Queue.UsedTiles/(TileCountY*TileCountX));
-            fflush(stdout);
-        }
-    }
-    
-    clock_t End = clock();
-    clock_t Total = (End - Start);
-    
-    printf("Rendering Took: %dms\n", Total);
-    
-    bitmap_header Header = {};
-    Header.FileType = 0x4D42;
-    Header.FileSize = sizeof(Header) + W*H*sizeof(u32);
-    Header.BitmapOffset = sizeof(Header);
-    Header.Size = sizeof(Header) - 14;
-    Header.Width = W;
-    Header.Height = H;
-    Header.Planes = 1;
-    Header.BitsPerPixel = 32;
-    Header.Compression = 0;
-    Header.SizeOfBitmap = W*H*sizeof(u32);
-    Header.HorzResolution = 0;
-    Header.VertResolution = 0;
-    Header.ColorsUsed = 0;
-    Header.ColorsImportant = 0;
-    
-    u32* PackedPixels = (u32*)malloc(W*H*sizeof(u32));
-    FILE *Output = fopen("out.bmp", "wb");
-    if(Output)
-    {
-        PixelPtr = Pixels;
-        fwrite(&Header, sizeof(Header), 1, Output);
-        for(int Y = 0; Y < H; Y++)
-        {
-            for(int X = 0; X < W; X++)
-            {
-                PackedPixels[X + Y*W] = PackV3(*PixelPtr++);
-                u32 P = PackedPixels[X + Y*W];
-                fwrite(&P, 1, sizeof(P), Output);
-            }
-        }
-        
-        fclose(Output);
-    }
-    else
-    {
-        fclose(Output);
-    }
-    GLBuffer = PackedPixels;
-    
-    return(0);
-}
-#endif 
 #define GL_FRAMEBUFFER_SRGB               0x8DB9
+
 internal b32x
 InitOpenGL(HWND Window)
 {
@@ -599,7 +425,6 @@ Display()
     glTexCoord2f(1,1);
     glVertex2f(P, P);
     
-    
     glTexCoord2f(0,0);
     glVertex2f(-P, -P);
     
@@ -622,16 +447,16 @@ LRESULT CALLBACK WinProc(HWND Hwnd, UINT Msg, WPARAM WParam, LPARAM LParam)
         case WM_WINDOWPOSCHANGING:
         break;
         case WM_PAINT:  
-        glViewport(0,0,1280, 720);
+        glViewport(0,0,1750, 700);
         
         glGenTextures(1, &TextureHandle);
         glBindTexture(GL_TEXTURE_2D, TextureHandle);
-        glTexImage2D(GL_TEXTURE_2D,0, GL_RGBA8, 1280, 720,0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, GLBuffer);
+        glTexImage2D(GL_TEXTURE_2D,0, GL_RGBA8, 1750, 700,0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, GLBuffer);
         glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
         
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         
         glEnable(GL_TEXTURE_2D);
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -654,13 +479,27 @@ LRESULT CALLBACK WinProc(HWND Hwnd, UINT Msg, WPARAM WParam, LPARAM LParam)
         break;  
     }  
     
-    return 0;  
+    return 0;
+}
+
+
+internal void
+CreateConsole()
+{
+    b32 Console = AllocConsole();
+    
+    if(!Console)
+    {
+        return;
+    }
+    FILE* StdOut;
+    freopen_s(&StdOut, "CONOUT$", "w", stdout);
 }
 
 int CALLBACK
 WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
 {
-    
+    CreateConsole();
     char *rtconfig = "verbose=0,threads=8";
     
     RTCDevice Device = rtcNewDevice(rtconfig);
@@ -672,9 +511,25 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
     face* F = nullptr;
     material Materials[3] = {};
     u32* MatIndices;
+    v2* TexCoords;
+    vertex_attribs* VertexAttribs;
     
+    texture Tex, TexEmit;
+    printf("Loading texture...\n");
+    Tex.Data = stbi_load("albedo.jpg",&Tex.Width, &Tex.Height, &Tex.N, STBI_rgb);
+    if(!Tex.Data) return EXIT_FAILURE;
+    TexEmit.N = 3;
+    TexEmit.Width = 1;
+    TexEmit.Height = 1;
+    TexEmit.Data = (u8*)malloc(sizeof(u8)*3);
+    *TexEmit.Data++ = 255*2;
+    *TexEmit.Data++ = 255*2;
+    *TexEmit.Data++ = 255*2;
+    
+    printf("Finished loading texture\n");
     Materials[0].Type = mat_type::DIFFUSE;
-    Materials[0].Colour = {1.0, 1.0, 1.0};
+    Materials[0].Colour = {0.0, 1.0, 1.0};
+    Materials[0].Texture = Tex;
     
     Materials[1].Type = mat_type::GLOSSY;
     Materials[1].Colour = {0.0, 1.0, 0.0};
@@ -682,17 +537,18 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
     Materials[2].Type = mat_type::DIFFUSE;
     Materials[2].Emit = {2.0,2.0,2.0};
     
+    Materials[2].Texture = TexEmit;
     printf("Loading OBJ...\n");
-    LoadOBJ("buddhalight.obj", 
-            &V, &F, &Mesh, &MatIndices);
+    LoadOBJ("log_light.obj", 
+            &V, &F, &Mesh, &MatIndices, &TexCoords, &VertexAttribs);
     printf("Finished loading OBJ\n");
     rtcCommitGeometry(Mesh);
     u32 geomID = rtcAttachGeometry(Scene,Mesh);
     rtcReleaseGeometry(Mesh);
     
     rtcCommitScene(Scene);
-    s32 W = 1280;
-    s32 H = 720;
+    s32 W = 1750;
+    s32 H = 700;
     v3f* Pixels = (v3f*)malloc(H*W*sizeof(v3f));
     v3f* PixelPtr = Pixels;
     image Image = {};
@@ -701,11 +557,11 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
     Image.Pixels = Pixels;
     
     camera Camera = {};
-    Camera.Origin = V3f(0,4.5,12);
+    Camera.Origin = V3f(0,0.5,4);
     Camera.Rotation = V3f(0,0,0);
     Camera.FOV = 50.0f;
     u32 Samples = 10;
-    f32 Contrib = 1.0f/float(Samples);
+    f32 Contrib = 1.0f/f32(Samples);
     u32 CountSamples = 1;
     
     
@@ -715,9 +571,9 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
     u32 TileCountX = (W + TileSize -1)/TileSize;
     u32 TileCountY = (H + TileSize -1)/TileSize;
     
-    
     thread_queue Queue = {};
     Queue.Samples = 1;
+    Queue.TotalSamples = 1;
     Queue.ThreadInfos = (thread_info*)malloc(TileCountY*TileCountX*sizeof(thread_info));
     
     clock_t Start = clock();
@@ -739,16 +595,18 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
             ThreadInfo->Camera = Camera;
             ThreadInfo->Materials = Materials;
             ThreadInfo->MatIndices = MatIndices;
+            ThreadInfo->TexCoords = TexCoords;
+            ThreadInfo->Attribs = VertexAttribs;
             ThreadInfo->Image = Image;
             ThreadInfo->XMin = XMin;
             ThreadInfo->YMin = YMin;
             ThreadInfo->XMax = XMax;
             ThreadInfo->YMax = YMax;
-            ThreadInfo->RandomState = 1;
+            ThreadInfo->RandomState = 25;
         }
     }
     
-    u32* PackedPixels = (u32*)malloc(W*H*sizeof(u32));
+    u32* DisplayPixels = (u32*)malloc(W*H*sizeof(u32));
     
     WNDCLASSEX WinClass = {};
     WinClass.cbSize = sizeof(WNDCLASSEX);
@@ -764,7 +622,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
         return 1;
     }
     HWND HWnd = CreateWindow("Payload", "Payload IPR", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                             1280, 720, 0, 0, Instance, 0);
+                             W, H, 0, 0, Instance, 0);
     
     if(!HWnd)
     {
@@ -780,7 +638,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
     ShowWindow(HWnd,CmdShow);  
     UpdateWindow(HWnd);  
     MSG Msg;  
-    GLBuffer = PackedPixels;
+    GLBuffer = DisplayPixels;
     
     //DispatchThreads(&Queue);
     for(u32 Cores = 1; Cores < 8; Cores++)
@@ -789,20 +647,21 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
         HANDLE ThreadHandle = CreateThread(0,0,TileThread, &Queue, 0, &ThreadID);
         CloseHandle(ThreadHandle);
     }
-    u32 TotalSamples = 1;
+    u64 TotalSamples = 0;
     while (GetMessage(&Msg, NULL, 0, 0))  
     {  
         if(Queue.UsedTiles == TileCountY*TileCountX)
         {
-            TotalSamples++;
+            Queue.TotalSamples++;
             for(int Y = 0; Y < H; Y++)
             {
                 for(int X = 0; X < W; X++)
                 {
-                    v3f CurrentColour = UnpackV3(PackedPixels[X+Y*W]);
-                    v3f NewColour = CurrentColour + (PixelPtr[X+Y*W] - CurrentColour)/TotalSamples;
-                    PackedPixels[X + Y*W] = PackV3(NewColour);
-                    //PackedPixels[X+Y*W] = PackV3(PixelPtr[X+Y*W]);
+                    //v3f CurrentColour = UnpackV3(PackedPixels[X+Y*W]);
+                    //v3f NewColour = CurrentColour + (PixelPtr[X+Y*W] - CurrentColour)/(f32)TotalSamples;
+                    //v3f NewColour = (NewColour*(TotalSamples-1) + CurrentColour)/(f32)TotalSamples;
+                    //PackedPixels[X + Y*W] = PackV3(NewColour);
+                    DisplayPixels[X+Y*W] = PackV3(Pixels[X+Y*W]);
                 }
                 
             }

@@ -1,6 +1,3 @@
-
-
-
 internal void
 RotateX(v4* A, f32 Angle)
 {

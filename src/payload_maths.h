@@ -280,3 +280,108 @@ Unit(v4 A)
 }
 
 
+//////////////////
+
+internal v2
+operator+(v2 A, v2 B)
+{
+    v2 Result;
+    Result.X = A.X + B.X;
+    Result.Y = A.Y + B.Y;
+    return(Result);
+}
+
+internal v2
+operator+(v2 A, f32 B)
+{
+    v2 Result;
+    Result.X = A.X + B;
+    Result.Y = A.Y + B;
+    return(Result);
+}
+
+internal v2
+operator-(v2 A, v2 B)
+{
+    v2 Result;
+    Result.X = A.X - B.X;
+    Result.Y = A.Y - B.Y;
+    return(Result);
+}
+
+internal v2
+operator-(v2 A, f32 B)
+{
+    v2 Result;
+    Result.X = A.X - B;
+    Result.Y = A.Y - B;
+    return(Result);
+}
+
+internal v2
+operator*(v2 A, f32 B)
+{
+    v2 Result;
+    Result.X = A.X * B;
+    Result.Y = A.Y * B;
+    return(Result);
+}
+
+internal v2
+operator*(f32 B,v2 A)
+{
+    v2 Result;
+    Result.X = A.X * B;
+    Result.Y = A.Y * B;
+    return(Result);
+}
+
+internal v2
+operator*(mat4 B, v2 A)
+{
+    v2 Result;
+    Result.X = A.X*B.M00 + A.Y*B.M01;
+    Result.Y = A.X*B.M10 + A.Y*B.M11;
+    return(Result);
+}
+
+internal v2
+operator/(v2 A, f32 B)
+{
+    v2 Result;
+    Result.X = A.X / B;
+    Result.Y = A.Y / B;
+    return(Result);
+}
+
+internal inline f32
+Inner(v2 A, v2 B)
+{
+    f32 Result;
+    Result = A.X*B.X + A.Y*B.Y;
+    return(Result);
+}
+
+internal inline f32
+LengthSqrd(v2 A)
+{
+    f32 Result;
+    Result = Inner(A,A);
+    return(Result);
+}
+
+internal inline f32
+Length(v2 A)
+{
+    f32 Result;
+    Result = sqrt(LengthSqrd(A));
+    return(Result);
+}
+
+internal inline v2
+Unit(v2 A)
+{
+    v2 Result;
+    Result = A/Length(A);
+    return(Result);
+}

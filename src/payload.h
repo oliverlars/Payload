@@ -26,6 +26,18 @@ typedef double f64;
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
 #define INF FLT_MAX
 
+union v2
+{
+    struct
+    {
+        f32 X, Y;
+    };
+    struct
+    {
+        f32 U, V;
+    };
+    f32 E[2];
+};
 
 union v3f
 {
@@ -73,6 +85,14 @@ struct vertex
     f32 X,Y,Z,R;
 };
 
+struct texture
+{
+    u8* Data;
+    s32 Width;
+    s32 Height;
+    s32 N;
+};
+
 struct diffuse
 {
     f32 Roughness;
@@ -110,6 +130,7 @@ struct material
     mat_type Type;
     v3f Emit;
     v3f Colour;
+    texture Texture;
     union
     {
         glossy Glossy;
@@ -119,11 +140,23 @@ struct material
     };
 };
 
+
 struct face
 {
     u32 V0;
     u32 V1;
     u32 V2;
+};
+
+struct vertex_attribs
+{
+    u32 T0;
+    u32 T1;
+    u32 T2;
+    
+    u32 N0;
+    u32 N1;
+    u32 N2;
 };
 
 struct RTC_ALIGN(16) ray
@@ -199,7 +232,10 @@ struct thread_info
     image Image;
     RTCScene* Scene;
     material* Materials;
+    v2* TexCoords;
+    vertex_attribs* Attribs;
     u32* MatIndices;
+    face* Faces;
     camera Camera;
     u32 RandomState;
 };
@@ -211,6 +247,7 @@ struct thread_queue
     u32 Samples;
     volatile u64 NextThreadIndex;
     volatile u64 UsedTiles;
+    u32 TotalSamples;
 };
 
 
@@ -261,4 +298,36 @@ internal inline f32
 RandBilateral(u32* RandomState)
 {
     return 2.0f*RandUnilateral(RandomState) - 1.0f;
+}
+
+
+internal f32
+GammaCorrect(f32 L)
+{
+    if(L < 0.0f)
+    {
+        L = 0.0f;
+    }
+    
+    if(L > 1.0f)
+    {
+        L = 1.0f;
+    }
+    
+    f32 S = L*12.92f;
+    if(L > 0.0031308f)
+    {
+        S = 1.055f*pow(L, 1.0f/2.4f) - 0.055f;
+    }
+    
+    return(S);
+}
+internal v3f
+GammaCorrectV3(v3f L)
+{
+    v3f Result;
+    Result.X = GammaCorrect(L.X);
+    Result.Y = GammaCorrect(L.Y);
+    Result.Z = GammaCorrect(L.Z);
+    return(Result);
 }
