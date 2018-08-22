@@ -13,5 +13,5 @@ SampleTexture(texture Texture, v2 Coords)
         Texture.Data[Index+2]
     };
     
-    return Result/255.0f;
+    return GammaCorrectV3(Result/255.0f);
 }

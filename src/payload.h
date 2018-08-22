@@ -2,29 +2,34 @@
 #define global static
 #define Assert assert
 
-typedef uint8_t u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
+using  u8 = uint8_t;
+using u16 = uint16_t;
+using u32 = uint32_t;
+using u64 = uint64_t;
 
-typedef int8_t s8;
-typedef int16_t s16;
-typedef int32_t s32;
-typedef int64_t s64;
+using  s8 = int8_t;
+using s16 = int16_t;
+using s32 = int32_t;
+using s64 = int64_t;
 
-typedef s32 b32;
-typedef s32 b32x;
+using b32 = s32;
+using b32x = s32;
 
-typedef float f32;
-typedef double f64;
+using f32 = float;
+using f64 = double;
 
-#define U32Max ((u32)-1)
-#define F32Max FLT_MAX
-#define F32Min -FLT_MAX
-#define Pi32 3.14159265359f
-#define Tau32 6.28318530717958647692f
-#define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
-#define INF FLT_MAX
+const u32 U32Max = ((u32)-1);
+const f32 F32Max = FLT_MAX;
+const f32 INF = FLT_MAX;
+const f32 F32Min = -FLT_MAX;
+const f32 Pi32 = 3.1415926535897f;
+const f32 Tau32 = 6.283185307179f;
+
+template <typename A, u32 N>
+constexpr u32 ArrayCount(A (&)[N])
+{
+    return N;
+}
 
 union v2
 {
@@ -125,12 +130,20 @@ struct mix
     f32 Factor;
 };
 
+enum surface_type
+{
+    COLOUR,
+    TEXTURE,
+};
+
 struct material
 {
     mat_type Type;
+    surface_type Surface;
     v3f Emit;
     v3f Colour;
     texture Texture;
+    texture Normal;
     union
     {
         glossy Glossy;
@@ -157,6 +170,12 @@ struct vertex_attribs
     u32 N0;
     u32 N1;
     u32 N2;
+};
+
+struct mesh
+{
+    
+    vertex_attribs Attribs;
 };
 
 struct RTC_ALIGN(16) ray
@@ -304,16 +323,17 @@ RandBilateral(u32* RandomState)
 internal f32
 GammaCorrect(f32 L)
 {
+    
     if(L < 0.0f)
     {
         L = 0.0f;
     }
-    
+#if 0
     if(L > 1.0f)
     {
         L = 1.0f;
     }
-    
+#endif
     f32 S = L*12.92f;
     if(L > 0.0031308f)
     {

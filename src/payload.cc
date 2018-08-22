@@ -144,7 +144,7 @@ LoadOBJ(char* Filename,
         goto FileError;
     }
     u32 FileSize = GetFileSize(File, NULL);
-    char* Buffer = reinterpret_cast<char*>(malloc(FileSize*sizeof(u8)));
+    char* Buffer = (char*)malloc(FileSize*sizeof(u8));
     char* BufferPtr = Buffer;
     ReadFile(File, Buffer, FileSize, 0, 0);
     if(Buffer == NULL)
@@ -306,7 +306,7 @@ RenderTile(thread_queue* Queue)
                 u32 BounceCount;
                 v3f Result = {0.f,0.f,0.f};
                 v3f Attenuation = V3f(1.,1.,1.);
-                v3f Sky = {};
+                v3f Sky = {0.2, 0.2, 0.2};
                 
                 for(BounceCount = 1; BounceCount < 10; BounceCount++)
                 {
@@ -324,8 +324,16 @@ RenderTile(thread_queue* Queue)
                         //printf("%f %f\n", Coords.U, Coords.V);
                         //Coords.U = 1.0 - Coords.U;
                         Coords.V = 1.0 - Coords.V;
+                        v3f Albedo;
+                        if(Material.Surface == TEXTURE)
+                        {
+                            Albedo = SampleTexture(Material.Texture, Coords);
+                        }
+                        else
+                        {
+                            Albedo = Material.Colour;
+                        }
                         
-                        v3f Albedo = SampleTexture(Material.Texture, Coords);
                         v3f Emit =  Material.Emit;
                         Result = Result + Hadamard(Emit, Attenuation);
                         if(LengthSqrd(Emit) > 0.0f)
@@ -441,7 +449,7 @@ LRESULT CALLBACK WinProc(HWND Hwnd, UINT Msg, WPARAM WParam, LPARAM LParam)
     PAINTSTRUCT Ps;  
     HDC WindowDC = GetDC(Hwnd);  
     GLuint TextureHandle;
-    glEnable(GL_FRAMEBUFFER_SRGB);
+    //glEnable(GL_FRAMEBUFFER_SRGB);
     switch (Msg)  
     {  
         case WM_WINDOWPOSCHANGING:
@@ -518,15 +526,9 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
     printf("Loading texture...\n");
     Tex.Data = stbi_load("albedo.jpg",&Tex.Width, &Tex.Height, &Tex.N, STBI_rgb);
     if(!Tex.Data) return EXIT_FAILURE;
-    TexEmit.N = 3;
-    TexEmit.Width = 1;
-    TexEmit.Height = 1;
-    TexEmit.Data = (u8*)malloc(sizeof(u8)*3);
-    *TexEmit.Data++ = 255*2;
-    *TexEmit.Data++ = 255*2;
-    *TexEmit.Data++ = 255*2;
     
     printf("Finished loading texture\n");
+    Materials[0].Surface = surface_type::TEXTURE;
     Materials[0].Type = mat_type::DIFFUSE;
     Materials[0].Colour = {0.0, 1.0, 1.0};
     Materials[0].Texture = Tex;
@@ -534,10 +536,10 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
     Materials[1].Type = mat_type::GLOSSY;
     Materials[1].Colour = {0.0, 1.0, 0.0};
     
+    Materials[2].Surface = surface_type::COLOUR;
     Materials[2].Type = mat_type::DIFFUSE;
-    Materials[2].Emit = {2.0,2.0,2.0};
+    Materials[2].Emit = {3.0,3.0,3.0};
     
-    Materials[2].Texture = TexEmit;
     printf("Loading OBJ...\n");
     LoadOBJ("log_light.obj", 
             &V, &F, &Mesh, &MatIndices, &TexCoords, &VertexAttribs);
@@ -641,7 +643,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
     GLBuffer = DisplayPixels;
     
     //DispatchThreads(&Queue);
-    for(u32 Cores = 1; Cores < 24; Cores++)
+    for(u32 Cores = 1; Cores < 12; Cores++)
     {
         DWORD ThreadID;
         HANDLE ThreadHandle = CreateThread(0,0,TileThread, &Queue, 0, &ThreadID);
@@ -665,7 +667,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int CmdShow)
             
             Queue.UsedTiles = 0;
             Queue.NextThreadIndex = 0;
-            for(u32 Cores = 1; Cores < 8; Cores++)
+            for(u32 Cores = 1; Cores < 12; Cores++)
             {
                 DWORD ThreadID;
                 HANDLE ThreadHandle = CreateThread(0,0,TileThread, &Queue, 0, &ThreadID);

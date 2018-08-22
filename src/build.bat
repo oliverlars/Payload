@@ -8,7 +8,7 @@
 @set "PATH=%PATH%;%LLVMPath%\bin;%VSBasePath%\bin\HostX64\x64"
 
 @set CompilerFlags= ^
-	-std=c++14 ^
+	-std=c++17 ^
 	-Wno-everything ^
 	-I "..\lib"
 
